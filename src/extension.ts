@@ -14,6 +14,7 @@ import { fetchQuota, QuotaSnapshot } from './quota-fetcher';
 let statusBarItem: vscode.StatusBarItem;
 let pollingTimer: ReturnType<typeof setInterval> | undefined;
 let processInfo: ProcessInfo | null = null;
+let lastSnapshot: QuotaSnapshot | null = null;
 
 // ─── Activate ───────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
             showLoading();
             if (!processInfo) { await detectProcess(); }
             await refreshQuota();
+            showRefreshConfirmation();
         })
     );
 
@@ -70,6 +72,7 @@ async function refreshQuota() {
 
     try {
         const snapshot = await fetchQuota(processInfo.port, processInfo.csrfToken);
+        lastSnapshot = snapshot;
         updateStatusBar(snapshot);
     } catch {
         // Process might have restarted – re-detect once
@@ -77,6 +80,7 @@ async function refreshQuota() {
         if (processInfo) {
             try {
                 const snapshot = await fetchQuota(processInfo.port, processInfo.csrfToken);
+                lastSnapshot = snapshot;
                 updateStatusBar(snapshot);
                 return;
             } catch { /* fall through */ }
@@ -197,6 +201,19 @@ function showLoading() {
     statusBarItem.tooltip = 'Antigravity Pulse — detecting process…';
     statusBarItem.backgroundColor = undefined;
     statusBarItem.show();
+}
+
+function showRefreshConfirmation() {
+    // Brief visual confirmation that the refresh completed
+    statusBarItem.text = '$(check) Refreshed';
+    statusBarItem.backgroundColor = undefined;
+    statusBarItem.show();
+
+    setTimeout(() => {
+        if (lastSnapshot) {
+            updateStatusBar(lastSnapshot);
+        }
+    }, 1500);
 }
 
 function showError(msg: string) {

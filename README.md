@@ -68,7 +68,7 @@ Hover over the status bar item for a detailed, formatted breakdown:
 
 ## Install
 
-1. Download the `.vsix` from [Releases](https://github.com/jdgarcia/antigravity-pulse/releases)
+1. Download the `.vsix` from [Releases](https://github.com/codavidgarcia/antigravity-pulse/releases)
 2. `Cmd+Shift+P` then **Extensions: Install from VSIX...**
 3. Select the file and reload
 
