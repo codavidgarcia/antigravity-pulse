@@ -20,7 +20,7 @@ let processInfo: ProcessInfo | null = null;
 export async function activate(ctx: vscode.ExtensionContext) {
     // Status bar – right-aligned, high priority
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
-    statusBarItem.command = 'antigravityCreds.refresh';
+    statusBarItem.command = 'antigravityPulse.refresh';
     ctx.subscriptions.push(statusBarItem);
 
     // Commands
