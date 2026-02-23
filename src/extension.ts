@@ -2,7 +2,7 @@
  * Antigravity Pulse – Ultra-minimal VS Code extension
  *
  * Shows your Antigravity model quota in the status bar, grouped
- * by pool (Gemini 3.x · Claude/GPT · Gemini 2.5).
+ * by pool (Gemini · Claude/GPT).
  *
  * Each pool gets a color indicator (🟢/🟡/🔴) that changes based on remaining quota.
  */
@@ -109,9 +109,10 @@ function stopPolling() {
 
 /** Compact pool labels for the status bar */
 const POOL_SHORT: Record<string, string> = {
-    gemini3: 'Gemini',
+    gemini: 'Gemini',
+    gemini_pro: 'Gem Pro',
+    gemini_flash: 'Gem Flash',
     claude_gpt: 'Claude',
-    'gemini2.5': 'Gemini 2.5',
     other: 'Other',
 };
 
@@ -163,8 +164,9 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
         const emoji = pct > 50 ? '🟢' : pct > 20 ? '🟡' : '🔴';
         const bar = visualBar(pct);
 
+        const resetLocal = pool.resetTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         md.appendMarkdown(`**${emoji} ${pool.displayName}** — ${pct.toFixed(0)}%\n\n`);
-        md.appendMarkdown(`\`${bar}\` resets in **${pool.timeUntilReset}**\n\n`);
+        md.appendMarkdown(`\`${bar}\` resets in **${pool.timeUntilReset}** _(${resetLocal})_\n\n`);
 
         // Individual models within the pool
         if (pool.models.length > 1) {

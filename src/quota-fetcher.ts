@@ -2,21 +2,19 @@
  * Quota Fetcher – Calls the Antigravity GetUserStatus API,
  * parses per-model quotas, and groups them by quota pool.
  *
- * Quota Pool Rules (from Antigravity's actual grouping):
- *   • Gemini 3.x models  → "Gemini 3.x" pool
- *   • Claude + GPT models → "Claude / GPT" pool
- *   • Gemini 2.5 models  → "Gemini 2.5" pool
- *   • Others             → "Other" pool
+ * Pool detection is DYNAMIC: models are grouped by their actual
+ * (remainingFraction, resetTime) pair from the API. Models that
+ * share the same fraction AND resetTime are in the same pool.
  *
- * Models sharing the same pool have identical remainingFraction
- * and resetTime in the API response.
+ * Each pool gets a display name based on a label-hint classification
+ * (Gemini, Claude/GPT, etc.) but the grouping is always data-driven.
+ * If Antigravity ever splits Flash into its own bucket, this code
+ * will detect and display it automatically.
  */
 
 import * as https from 'https';
 
 // ─── Public types ───────────────────────────────────────────────────
-
-export type QuotaPoolId = 'gemini3' | 'claude_gpt' | 'gemini2.5' | 'other';
 
 export interface PromptCredits {
     available: number;
@@ -27,27 +25,27 @@ export interface PromptCredits {
 export interface ModelQuota {
     label: string;
     modelId: string;
-    pool: QuotaPoolId;
-    remainingPct: number;   // 0–100
+    family: string;           // label-based hint: 'gemini', 'claude', 'gpt', 'other'
+    remainingPct: number;     // 0–100
     isExhausted: boolean;
     resetTime: Date;
-    timeUntilReset: string; // e.g. "2h 15m"
+    timeUntilReset: string;   // e.g. "2h 15m"
 }
 
 export interface QuotaPool {
-    id: QuotaPoolId;
-    displayName: string;
-    remainingPct: number;   // 0–100  (from the first model in the pool)
+    id: string;               // dynamic key, e.g. "gemini" or "gemini_flash"
+    displayName: string;      // human-friendly name
+    remainingPct: number;     // 0–100
     isExhausted: boolean;
     resetTime: Date;
     timeUntilReset: string;
-    models: ModelQuota[];   // individual models in this pool
+    models: ModelQuota[];
 }
 
 export interface QuotaSnapshot {
     credits?: PromptCredits;
-    pools: QuotaPool[];     // grouped by quota pool
-    models: ModelQuota[];   // flat list, all models
+    pools: QuotaPool[];       // auto-detected pools
+    models: ModelQuota[];     // flat list, all models
     timestamp: Date;
 }
 
@@ -67,34 +65,48 @@ interface ServerResponse {
     };
 }
 
-// ─── Pool classification ────────────────────────────────────────────
+// ─── Family classification (label hints only, NOT pool assignment) ──
 
-const POOL_DISPLAY_NAMES: Record<QuotaPoolId, string> = {
-    gemini3: 'Gemini 3.x',
-    'claude_gpt': 'Claude / GPT',
-    'gemini2.5': 'Gemini 2.5',
-    other: 'Other',
-};
-
-function classifyModel(label: string, modelId: string): QuotaPoolId {
+function classifyFamily(label: string, modelId: string): string {
     const lower = (label + ' ' + modelId).toLowerCase();
-
-    // Claude and GPT share one pool
-    if (lower.includes('claude') || lower.includes('gpt')) {
-        return 'claude_gpt';
-    }
-
-    // Gemini: distinguish 3.x vs 2.5
+    if (lower.includes('claude')) { return 'claude'; }
+    if (lower.includes('gpt')) { return 'gpt'; }
     if (lower.includes('gemini')) {
-        if (/gemini[- _]?3(\.\d+)?/i.test(lower)) {
-            return 'gemini3';
-        }
-        if (/gemini[- _]?2[.-]?5/i.test(lower)) {
-            return 'gemini2.5';
-        }
+        if (lower.includes('flash')) { return 'gemini_flash'; }
+        return 'gemini';
+    }
+    return 'other';
+}
+
+// ─── Pool naming from members ───────────────────────────────────────
+
+/** Given a pool's models, derive a short display name */
+function derivePoolName(models: ModelQuota[]): { id: string; displayName: string } {
+    const families = new Set(models.map(m => m.family));
+    const hasPro = families.has('gemini');
+    const hasFlash = families.has('gemini_flash');
+
+    // Case 1: Both Pro and Flash share the same pool
+    if (hasPro && hasFlash) {
+        return { id: 'gemini', displayName: 'Gemini' };
+    }
+    // Case 2: Only Pro models in this pool
+    if (hasPro && !hasFlash) {
+        return { id: 'gemini_pro', displayName: 'Gem Pro' };
+    }
+    // Case 3: Only Flash models in this pool
+    if (hasFlash && !hasPro) {
+        return { id: 'gemini_flash', displayName: 'Gem Flash' };
     }
 
-    return 'other';
+    // Claude + GPT together (simplified to 'Claude' per user request)
+    const hasClaudeOrGpt = families.has('claude') || families.has('gpt');
+    if (hasClaudeOrGpt) {
+        return { id: 'claude_gpt', displayName: 'Claude' };
+    }
+
+    // Fallback: use first model's label
+    return { id: 'other', displayName: models[0]?.label || 'Other' };
 }
 
 // ─── Fetcher ────────────────────────────────────────────────────────
@@ -183,7 +195,7 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
             return {
                 label,
                 modelId,
-                pool: classifyModel(label, modelId),
+                family: classifyFamily(label, modelId),
                 remainingPct: fraction * 100,
                 isExhausted: fraction === 0,
                 resetTime,
@@ -191,36 +203,43 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
             };
         });
 
-    // ── Group into pools ──
-    const poolMap = new Map<QuotaPoolId, ModelQuota[]>();
+    // ── Auto-detect pools by (fraction, resetTime) ──
+    // Models with identical remainingFraction AND resetTime are in the same pool.
+    const bucketMap = new Map<string, ModelQuota[]>();
     for (const m of models) {
-        const list = poolMap.get(m.pool) || [];
+        const key = `${m.remainingPct}|${m.resetTime.toISOString()}`;
+        const list = bucketMap.get(key) || [];
         list.push(m);
-        poolMap.set(m.pool, list);
+        bucketMap.set(key, list);
     }
 
-    // Canonical pool order
-    const poolOrder: QuotaPoolId[] = ['gemini3', 'claude_gpt', 'gemini2.5', 'other'];
-    const pools: QuotaPool[] = poolOrder
-        .filter(id => poolMap.has(id))
-        .map(id => {
-            const members = poolMap.get(id)!;
-            // All members within the same pool share the same fraction/reset
-            // Use the minimum remaining % as the representative value
-            const lowestModel = members.reduce((a, b) =>
-                a.remainingPct < b.remainingPct ? a : b
-            );
+    // Convert detected buckets into QuotaPool objects
+    const pools: QuotaPool[] = [];
+    // Sort pools: gemini-family first, then claude/gpt, then other
+    const familyOrder = ['gemini', 'gemini_flash', 'claude', 'gpt', 'other'];
 
-            return {
-                id,
-                displayName: POOL_DISPLAY_NAMES[id],
-                remainingPct: lowestModel.remainingPct,
-                isExhausted: lowestModel.isExhausted,
-                resetTime: lowestModel.resetTime,
-                timeUntilReset: lowestModel.timeUntilReset,
-                models: members,
-            };
+    const sortedBuckets = [...bucketMap.values()].sort((a, b) => {
+        const aIdx = Math.min(...a.map(m => familyOrder.indexOf(m.family)));
+        const bIdx = Math.min(...b.map(m => familyOrder.indexOf(m.family)));
+        return aIdx - bIdx;
+    });
+
+    for (const members of sortedBuckets) {
+        const { id, displayName } = derivePoolName(members);
+        const rep = members.reduce((a, b) =>
+            a.remainingPct < b.remainingPct ? a : b
+        );
+
+        pools.push({
+            id,
+            displayName,
+            remainingPct: rep.remainingPct,
+            isExhausted: rep.isExhausted,
+            resetTime: rep.resetTime,
+            timeUntilReset: rep.timeUntilReset,
+            models: members,
         });
+    }
 
     return { credits, pools, models, timestamp: new Date() };
 }
