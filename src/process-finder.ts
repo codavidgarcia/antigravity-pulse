@@ -5,7 +5,7 @@
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import * as https from 'https';
+import * as http from 'http';
 import * as process from 'process';
 
 const execAsync = promisify(exec);
@@ -156,14 +156,25 @@ function parsePortOutput(stdout: string, pid: number): number[] {
     }
 
     // macOS / Linux – parse lsof or ss output
-    const regex = new RegExp(
-        `^\\S+\\s+${pid}\\s+.*?(?:TCP|UDP)\\s+(?:\\*|[\\d.]+|\\[[\\da-f:]+\\]):(\\d+)\\s+\\(LISTEN\\)`,
-        'gim'
-    );
-    let match;
-    while ((match = regex.exec(stdout)) !== null) {
-        const p = parseInt(match[1], 10);
-        if (!ports.includes(p)) { ports.push(p); }
+    const lines = stdout.split('\n');
+    for (const line of lines) {
+        // Option 1: lsof format
+        const lsofRegex = new RegExp(`^\\S+\\s+${pid}\\s+.*?(?:TCP|UDP)\\s+(?:\\*|[\\d.]+|\\[[\\da-f:]+\\]):(\\d+)\\s+\\(LISTEN\\)`, 'i');
+        const lsofMatch = line.match(lsofRegex);
+        if (lsofMatch) {
+            const p = parseInt(lsofMatch[1], 10);
+            if (!ports.includes(p)) { ports.push(p); }
+            continue;
+        }
+
+        // Option 2: ss format (e.g., LISTEN 0 128 127.0.0.1:44843 ... users:(("..._server",pid=103804,fd=10)))
+        if (line.includes(`pid=${pid}`)) {
+            const ssPortMatch = line.match(/(?:^|\s)(?:[\d.]+|\[[\da-f:]+\]|[*]):(\d+)\s/);
+            if (ssPortMatch) {
+                const p = parseInt(ssPortMatch[1], 10);
+                if (!ports.includes(p)) { ports.push(p); }
+            }
+        }
     }
     return ports.sort((a, b) => a - b);
 }
@@ -178,7 +189,7 @@ async function findWorkingPort(ports: number[], csrfToken: string): Promise<numb
 
 function testPort(port: number, csrfToken: string): Promise<boolean> {
     return new Promise(resolve => {
-        const req = https.request(
+        const req = http.request(
             {
                 hostname: '127.0.0.1',
                 port,
@@ -189,7 +200,6 @@ function testPort(port: number, csrfToken: string): Promise<boolean> {
                     'X-Codeium-Csrf-Token': csrfToken,
                     'Connect-Protocol-Version': '1',
                 },
-                rejectUnauthorized: false,
                 timeout: 3000,
             },
             res => {

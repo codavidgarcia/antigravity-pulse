@@ -12,7 +12,7 @@
  * will detect and display it automatically.
  */
 
-import * as https from 'https';
+import * as http from 'http';
 
 // ─── Public types ───────────────────────────────────────────────────
 
@@ -131,7 +131,7 @@ export async function fetchQuota(port: number, csrfToken: string): Promise<Quota
 function post<T>(port: number, csrfToken: string, path: string, body: object): Promise<T> {
     return new Promise((resolve, reject) => {
         const payload = JSON.stringify(body);
-        const req = https.request(
+        const req = http.request(
             {
                 hostname: '127.0.0.1',
                 port,
@@ -143,7 +143,6 @@ function post<T>(port: number, csrfToken: string, path: string, body: object): P
                     'Connect-Protocol-Version': '1',
                     'X-Codeium-Csrf-Token': csrfToken,
                 },
-                rejectUnauthorized: false,
                 timeout: 5000,
             },
             res => {
