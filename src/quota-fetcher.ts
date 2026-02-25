@@ -86,6 +86,12 @@ function derivePoolName(models: ModelQuota[]): { id: string; displayName: string
     const families = new Set(models.map(m => m.family));
     const hasPro = families.has('gemini');
     const hasFlash = families.has('gemini_flash');
+    const hasClaudeOrGpt = families.has('claude') || families.has('gpt');
+
+    // All families share the same pool (identical quota + reset time)
+    if ((hasPro || hasFlash) && hasClaudeOrGpt) {
+        return { id: 'all', displayName: 'All Models' };
+    }
 
     // Case 1: Both Pro and Flash share the same pool
     if (hasPro && hasFlash) {
@@ -93,15 +99,14 @@ function derivePoolName(models: ModelQuota[]): { id: string; displayName: string
     }
     // Case 2: Only Pro models in this pool
     if (hasPro && !hasFlash) {
-        return { id: 'gemini_pro', displayName: 'Gem Pro' };
+        return { id: 'gemini_pro', displayName: 'Gemini Pro' };
     }
     // Case 3: Only Flash models in this pool
     if (hasFlash && !hasPro) {
-        return { id: 'gemini_flash', displayName: 'Gem Flash' };
+        return { id: 'gemini_flash', displayName: 'Gemini Flash' };
     }
 
-    // Claude + GPT together (simplified to 'Claude' per user request)
-    const hasClaudeOrGpt = families.has('claude') || families.has('gpt');
+    // Claude + GPT together
     if (hasClaudeOrGpt) {
         return { id: 'claude_gpt', displayName: 'Claude' };
     }

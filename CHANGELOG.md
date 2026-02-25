@@ -2,6 +2,12 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.3.7] - 2026-02-25
+
+### Fixed
+- Pool label now shows "All Models" when all quotas share the same reset time, instead of only showing "Gemini"
+- README corrections and improvements
+
 ## [1.3.6] - 2026-02-25
 
 ### Added

@@ -1,13 +1,6 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/codavidgarcia/antigravity-pulse/main/icon.png" alt="Antigravity Pulse" width="120">
-</p>
+# Antigravity Pulse
 
-<h1 align="center">Antigravity Pulse</h1>
-
-<p align="center">
-  <strong>Real-time AI quota monitor for your status bar</strong><br>
-  100% local · 120 KB · zero dependencies · zero telemetry
-</p>
+100% local and private. An **85 KB** status bar extension that monitors your Antigravity AI model quota at a glance, without external network calls, OAuth flows, or background processes.
 
 <p align="center">
   <a href="https://github.com/codavidgarcia/antigravity-pulse/releases/latest"><img src="https://img.shields.io/github/v/release/codavidgarcia/antigravity-pulse?style=flat-square&color=2ea043&labelColor=333" alt="Release"></a>
@@ -20,30 +13,26 @@
   <img src="https://raw.githubusercontent.com/codavidgarcia/antigravity-pulse/main/screenshot.png" alt="Antigravity Pulse in action" width="520">
 </p>
 
-<p align="center">
-  <em>Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers.</em>
-</p>
+Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers.
 
 ---
 
 ## Why Antigravity Pulse?
 
-Antigravity Pro & Ultra users get quota-limited access to AI models — but there's no built-in way to monitor your remaining usage. This extension solves that with a single status bar indicator that shows exactly how much quota you have left, per pool, per model.
-
-No browser tabs. No dashboard polling. No OAuth. Just a glance at your status bar.
+Antigravity already shows your quota in the settings panel but it requires 3 clicks to access. This extension puts it **in your status bar** so you always see it without navigating anywhere. Per pool, per model, one glance.
 
 ## Privacy first
 
-Everything runs **100% on your machine**. The extension reads quota data from the Antigravity process already running locally — no requests ever leave `localhost`.
+Everything runs **100% on your machine**. The extension reads quota data from the Antigravity process already running locally. No requests ever leave `localhost`.
 
-- No internet requests — every call stays on `127.0.0.1`
-- No Google authentication — no OAuth, no tokens stored, no login required
-- No data sent to any server — your usage patterns stay private
-- No special permissions — no filesystem access, no telemetry
+- No internet requests, every call stays on `127.0.0.1`
+- No Google authentication, no OAuth, no tokens stored, no login required
+- No data sent to any server, your usage patterns stay private
+- No special permissions, no filesystem access, no telemetry
 
 ## Lightweight
 
-The entire extension is **120 KB** unpacked. No bundled webviews, no CSS frameworks, no localization files. Three TypeScript files compiled to plain JavaScript.
+The entire extension is **85 KB** unpacked. No bundled webviews, no CSS frameworks, no localization files. Three TypeScript files compiled to plain JavaScript.
 
 - Activates in milliseconds
 - Polls every 30 seconds with a single local HTTPS POST (~1ms round trip)
@@ -67,9 +56,9 @@ Antigravity groups AI models into **independent quota pools**, each resetting ev
 |---|---|---|
 | **Gemini** | Gemini 3.x | Gemini 3 Pro (High), Gemini 3 Pro (Low), Gemini 3 Flash |
 | **Claude** | Claude / GPT | Claude Sonnet 4.5, Claude Opus 4.5, GPT-OSS 120B |
-| **Gemini 2.5** | Gemini 2.5 | Gemini 2.5 Flash |
+| **Gem Flash** | Gemini 3 Flash | Gemini 3 Flash |
 
-Each pool's quota is tracked independently — exhausting Claude/GPT does not affect your Gemini quota.
+Each pool's quota is tracked independently. Exhausting Claude/GPT does not affect your Gemini quota.
 
 ## Hover tooltip
 
@@ -82,15 +71,15 @@ Hover over the status bar item for a detailed, formatted breakdown:
 
 ## How it works
 
-1. **Process detection** — scans for the Antigravity `language_server` process
-2. **Token extraction** — reads the CSRF token from the process arguments
-3. **Port discovery** — finds the correct local API port
-4. **Local API call** — `POST https://127.0.0.1:{port}/.../GetUserStatus` — strictly local
-5. **Display** — groups models by pool, updates the status bar every 30 seconds
+1. **Process detection** scans for the Antigravity `language_server` process
+2. **Token extraction** reads the CSRF token from the process arguments
+3. **Port discovery** finds the correct local API port
+4. **Local API call** `POST https://127.0.0.1:{port}/.../GetUserStatus`, strictly local
+5. **Display** groups models by pool, updates the status bar every 30 seconds
 
 ## Install
 
-**Install from [Open VSX](https://open-vsx.org/extension/codavidgarcia/antigravity-pulse)** — search for **Antigravity Pulse** in your Extensions panel and click Install. You'll get automatic updates with every new release.
+**Install from [Open VSX](https://open-vsx.org/extension/codavidgarcia/antigravity-pulse)**. Search for **Antigravity Pulse** in your Extensions panel and click Install. You'll get automatic updates with every new release.
 
 <details>
 <summary>Manual install (no auto-updates)</summary>
@@ -111,13 +100,12 @@ Hover over the status bar item for a detailed, formatted breakdown:
 ## Requirements
 
 - Antigravity IDE must be running (the extension reads from its local process)
-- Pro or Ultra subscription for meaningful quota tracking
 
 ## Contributing
 
 This is an open-source project and contributions are welcome. If you find a bug, have a feature request, or want to submit a PR, head to the [GitHub repo](https://github.com/codavidgarcia/antigravity-pulse).
 
-If Antigravity Pulse saves you time, consider giving it a ⭐ — it helps others find it.
+If Antigravity Pulse saves you time, consider giving it a ⭐ to help others find it.
 
 ## License
 
