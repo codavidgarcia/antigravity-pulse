@@ -141,7 +141,7 @@ async function postWithFallback<T>(port: number, csrfToken: string, path: string
     }
 }
 
-function post<T>(port: number, csrfToken: string, path: string, body: object, protocol: 'http' | 'https' = 'http'): Promise<T> {
+function post<T>(port: number, csrfToken: string, path: string, body: object, protocol: 'http' | 'https'): Promise<T> {
     return new Promise((resolve, reject) => {
         const payload = JSON.stringify(body);
         const lib = protocol === 'https' ? https : http;

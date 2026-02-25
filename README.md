@@ -1,14 +1,36 @@
-# Antigravity Pulse
-
-100% local & private. Super lightweight. A **120 KB** status bar extension for Antigravity **Pro & Ultra** users who want to monitor their AI model quota at a glance — without external network calls, OAuth flows, or background overhead.
-
 <p align="center">
-  <img src="https://raw.githubusercontent.com/codavidgarcia/antigravity-pulse/main/screenshot.png" alt="Antigravity Pulse" width="480">
+  <img src="https://raw.githubusercontent.com/codavidgarcia/antigravity-pulse/main/icon.png" alt="Antigravity Pulse" width="120">
 </p>
 
-Hover for a rich Markdown tooltip with per-pool progress bars, individual model breakdown, and reset timers.
+<h1 align="center">Antigravity Pulse</h1>
+
+<p align="center">
+  <strong>Real-time AI quota monitor for your status bar</strong><br>
+  100% local · 120 KB · zero dependencies · zero telemetry
+</p>
+
+<p align="center">
+  <a href="https://github.com/codavidgarcia/antigravity-pulse/releases/latest"><img src="https://img.shields.io/github/v/release/codavidgarcia/antigravity-pulse?style=flat-square&color=2ea043&labelColor=333" alt="Release"></a>
+  <a href="https://github.com/codavidgarcia/antigravity-pulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-3b82f6?style=flat-square&labelColor=333" alt="MIT License"></a>
+  <a href="https://github.com/codavidgarcia/antigravity-pulse/stargazers"><img src="https://img.shields.io/github/stars/codavidgarcia/antigravity-pulse?style=flat-square&color=e3b341&labelColor=333" alt="Stars"></a>
+  <a href="https://open-vsx.org/extension/codavidgarcia/antigravity-pulse"><img src="https://img.shields.io/open-vsx/dt/codavidgarcia/antigravity-pulse?style=flat-square&color=e07c34&labelColor=333" alt="Open VSX Downloads"></a>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/codavidgarcia/antigravity-pulse/main/screenshot.png" alt="Antigravity Pulse in action" width="520">
+</p>
+
+<p align="center">
+  <em>Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers.</em>
+</p>
 
 ---
+
+## Why Antigravity Pulse?
+
+Antigravity Pro & Ultra users get quota-limited access to AI models — but there's no built-in way to monitor your remaining usage. This extension solves that with a single status bar indicator that shows exactly how much quota you have left, per pool, per model.
+
+No browser tabs. No dashboard polling. No OAuth. Just a glance at your status bar.
 
 ## Privacy first
 
@@ -68,27 +90,35 @@ Hover over the status bar item for a detailed, formatted breakdown:
 
 ## Install
 
-1. Download the `.vsix` from [Releases](https://github.com/codavidgarcia/antigravity-pulse/releases)
-2. `Cmd+Shift+P` then **Extensions: Install from VSIX...**
+**Install from [Open VSX](https://open-vsx.org/extension/codavidgarcia/antigravity-pulse)** — search for **Antigravity Pulse** in your Extensions panel and click Install. You'll get automatic updates with every new release.
+
+<details>
+<summary>Manual install (no auto-updates)</summary>
+
+1. Download the `.vsix` from [Releases](https://github.com/codavidgarcia/antigravity-pulse/releases/latest)
+2. `Cmd+Shift+P` → **Extensions: Install from VSIX...**
 3. Select the file and reload
+
+</details>
 
 ## Configuration
 
 | Setting | Default | Description |
 |---|---|---|
 | `antigravityPulse.pollingInterval` | `30` | Refresh interval in seconds (min: 30) |
+| `antigravityPulse.clockFormat` | `auto` | Clock format for reset times: `auto` (OS locale), `12h`, or `24h` |
 
 ## Requirements
 
-- Antigravity IDE must be running
+- Antigravity IDE must be running (the extension reads from its local process)
 - Pro or Ultra subscription for meaningful quota tracking
 
-## GitHub
+## Contributing
 
-Source code and releases: [codavidgarcia/antigravity-pulse](https://github.com/codavidgarcia/antigravity-pulse)
+This is an open-source project and contributions are welcome. If you find a bug, have a feature request, or want to submit a PR, head to the [GitHub repo](https://github.com/codavidgarcia/antigravity-pulse).
 
-If you find this useful, consider giving it a ⭐ on GitHub!
+If Antigravity Pulse saves you time, consider giving it a ⭐ — it helps others find it.
 
 ## License
 
-MIT
+[MIT](https://github.com/codavidgarcia/antigravity-pulse/blob/main/LICENSE)

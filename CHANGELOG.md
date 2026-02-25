@@ -2,6 +2,18 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.3.6] - 2026-02-25
+
+### Added
+- Clock format setting (`antigravityPulse.clockFormat`) — choose between `auto` (OS locale), `12h`, or `24h` for reset times in the tooltip
+
+### Fixed
+- HTTP/HTTPS fallback for API communication (contributed by [@saifulabidin](https://github.com/saifulabidin) in PR #3)
+- Enhanced Linux process port detection via `ss` output parsing
+
+### Changed
+- README overhaul with badges, improved install instructions, and full configuration reference
+
 ## [1.3.5] - 2026-02-24
 
 ### Fixed

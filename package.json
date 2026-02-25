@@ -30,6 +30,16 @@
                     "default": 30,
                     "minimum": 30,
                     "description": "Polling interval in seconds (minimum: 30s)"
+                },
+                "antigravityPulse.clockFormat": {
+                    "type": "string",
+                    "default": "auto",
+                    "enum": [
+                        "auto",
+                        "12h",
+                        "24h"
+                    ],
+                    "description": "Clock format for reset times: auto (OS locale), 12h, or 24h"
                 }
             }
         }

@@ -151,6 +151,14 @@ function updateStatusBar(snap: QuotaSnapshot) {
 
 // ─── Markdown tooltip builder ───────────────────────────────────────
 
+function clockOptions(): Intl.DateTimeFormatOptions {
+    const fmt = vscode.workspace.getConfiguration('antigravityPulse').get<string>('clockFormat', 'auto');
+    const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+    if (fmt === '12h') { opts.hour12 = true; }
+    else if (fmt === '24h') { opts.hour12 = false; }
+    return opts;
+}
+
 function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
     const md = new vscode.MarkdownString('', true);
     md.isTrusted = true;
@@ -166,10 +174,11 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
         const bar = visualBar(pct);
 
         const msUntilReset = pool.resetTime.getTime() - Date.now();
+        const timeOpts = clockOptions();
         const resetLocal = msUntilReset > 86_400_000
             ? pool.resetTime.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
-            pool.resetTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-            : pool.resetTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            pool.resetTime.toLocaleTimeString([], timeOpts)
+            : pool.resetTime.toLocaleTimeString([], timeOpts);
         md.appendMarkdown(`**${emoji} ${pool.displayName}** — ${pct.toFixed(0)}%\n\n`);
         md.appendMarkdown(`\`${bar}\` resets in **${pool.timeUntilReset}** _(${resetLocal})_\n\n`);
 
