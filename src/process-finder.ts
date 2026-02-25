@@ -5,6 +5,7 @@
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as http from 'http';
 import * as https from 'https';
 import * as process from 'process';
 
@@ -166,16 +167,32 @@ function parsePortOutput(stdout: string, pid: number): number[] {
         return ports.sort((a, b) => a - b);
     }
 
-    // macOS / Linux – parse lsof or ss output
-    const regex = new RegExp(
+    // macOS / Linux – parse lsof output
+    const lsofRegex = new RegExp(
         `^\\S+\\s+${pid}\\s+.*?(?:TCP|UDP)\\s+(?:\\*|[\\d.]+|\\[[\\da-f:]+\\]):(\\d+)\\s+\\(LISTEN\\)`,
         'gim'
     );
     let match;
-    while ((match = regex.exec(stdout)) !== null) {
+    while ((match = lsofRegex.exec(stdout)) !== null) {
         const p = parseInt(match[1], 10);
         if (!ports.includes(p)) { ports.push(p); }
     }
+
+    // Linux – parse ss output
+    // Format: LISTEN  0  128  *:42100  *:*  users:(("language_server",pid=1234,fd=5))
+    for (const line of stdout.split('\n')) {
+        if (!line.includes(`pid=${pid}`)) { continue; }
+        const cols = line.trim().split(/\s+/);
+        // ss columns: State Recv-Q Send-Q Local-Address:Port Peer-Address:Port Process
+        const localAddr = cols[3];
+        if (!localAddr) { continue; }
+        const portMatch = localAddr.match(/:(\d+)$/);
+        if (portMatch) {
+            const p = parseInt(portMatch[1], 10);
+            if (!ports.includes(p)) { ports.push(p); }
+        }
+    }
+
     return ports.sort((a, b) => a - b);
 }
 
@@ -187,9 +204,19 @@ async function findWorkingPort(ports: number[], csrfToken: string): Promise<numb
     return null;
 }
 
-function testPort(port: number, csrfToken: string): Promise<boolean> {
+/**
+ * Try HTTP first; if it fails, fall back to HTTPS on the same port.
+ */
+async function testPort(port: number, csrfToken: string): Promise<boolean> {
+    const ok = await testPortWithProtocol(port, csrfToken, 'http');
+    if (ok) { return true; }
+    return testPortWithProtocol(port, csrfToken, 'https');
+}
+
+function testPortWithProtocol(port: number, csrfToken: string, protocol: 'http' | 'https'): Promise<boolean> {
     return new Promise(resolve => {
-        const req = https.request(
+        const lib = protocol === 'https' ? https : http;
+        const req = lib.request(
             {
                 hostname: '127.0.0.1',
                 port,

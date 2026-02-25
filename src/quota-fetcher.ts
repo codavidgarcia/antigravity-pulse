@@ -12,6 +12,7 @@
  * will detect and display it automatically.
  */
 
+import * as http from 'http';
 import * as https from 'https';
 
 // ─── Public types ───────────────────────────────────────────────────
@@ -112,7 +113,7 @@ function derivePoolName(models: ModelQuota[]): { id: string; displayName: string
 // ─── Fetcher ────────────────────────────────────────────────────────
 
 export async function fetchQuota(port: number, csrfToken: string): Promise<QuotaSnapshot> {
-    const data = await post<ServerResponse>(port, csrfToken,
+    const data = await postWithFallback<ServerResponse>(port, csrfToken,
         '/exa.language_server_pb.LanguageServerService/GetUserStatus',
         {
             metadata: {
@@ -128,10 +129,23 @@ export async function fetchQuota(port: number, csrfToken: string): Promise<Quota
 
 // ─── Internals ──────────────────────────────────────────────────────
 
-function post<T>(port: number, csrfToken: string, path: string, body: object): Promise<T> {
+/**
+ * Try HTTP first; if it fails, fall back to HTTPS on the same port.
+ * The language server may expose either protocol depending on version.
+ */
+async function postWithFallback<T>(port: number, csrfToken: string, path: string, body: object): Promise<T> {
+    try {
+        return await post<T>(port, csrfToken, path, body, 'http');
+    } catch {
+        return await post<T>(port, csrfToken, path, body, 'https');
+    }
+}
+
+function post<T>(port: number, csrfToken: string, path: string, body: object, protocol: 'http' | 'https' = 'http'): Promise<T> {
     return new Promise((resolve, reject) => {
         const payload = JSON.stringify(body);
-        const req = https.request(
+        const lib = protocol === 'https' ? https : http;
+        const req = lib.request(
             {
                 hostname: '127.0.0.1',
                 port,
@@ -150,6 +164,10 @@ function post<T>(port: number, csrfToken: string, path: string, body: object): P
                 let raw = '';
                 res.on('data', (chunk: Buffer) => (raw += chunk));
                 res.on('end', () => {
+                    if (res.statusCode && res.statusCode >= 400) {
+                        reject(new Error(`HTTP ${res.statusCode}`));
+                        return;
+                    }
                     try { resolve(JSON.parse(raw) as T); }
                     catch { reject(new Error('Invalid JSON from Antigravity API')); }
                 });
