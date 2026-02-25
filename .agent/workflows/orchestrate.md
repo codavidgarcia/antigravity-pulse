@@ -1,1 +1,0 @@
-/Users/juandavidgarcia/.agent-skills/workflows/orchestrate.md

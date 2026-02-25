@@ -25,11 +25,11 @@ interface ParsedProcess {
  * Finds the running Antigravity language_server process, extracts
  * connection parameters, and discovers the correct API port.
  */
-export async function findAntigravityProcess(): Promise<ProcessInfo | null> {
+export async function findAntigravityProcess(workspacePath?: string): Promise<ProcessInfo | null> {
     const processName = getProcessName();
 
     try {
-        const parsed = await findProcess(processName);
+        const parsed = await findProcess(processName, workspacePath);
         if (!parsed) { return null; }
 
         const ports = await getListeningPorts(parsed.pid);
@@ -56,7 +56,7 @@ function getProcessName(): string {
     return `language_server_linux${process.arch === 'arm64' ? '_arm' : '_x64'}`;
 }
 
-async function findProcess(name: string): Promise<ParsedProcess | null> {
+async function findProcess(name: string, workspacePath?: string): Promise<ParsedProcess | null> {
     const cmd = process.platform === 'win32'
         ? `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='${name}'\\" | Select-Object ProcessId,CommandLine | ConvertTo-Json"`
         : process.platform === 'darwin'
@@ -64,14 +64,14 @@ async function findProcess(name: string): Promise<ParsedProcess | null> {
             : `pgrep -af ${name}`;
 
     const { stdout } = await execAsync(cmd);
-    return parseProcessOutput(stdout);
+    return parseProcessOutput(stdout, workspacePath);
 }
 
-function parseProcessOutput(stdout: string): ParsedProcess | null {
+function parseProcessOutput(stdout: string, workspacePath?: string): ParsedProcess | null {
     if (process.platform === 'win32') {
         return parseWindows(stdout);
     }
-    return parseUnix(stdout);
+    return parseUnix(stdout, workspacePath);
 }
 
 function parseWindows(stdout: string): ParsedProcess | null {
@@ -106,24 +106,35 @@ function parseWindows(stdout: string): ParsedProcess | null {
     }
 }
 
-function parseUnix(stdout: string): ParsedProcess | null {
-    for (const line of stdout.split('\n')) {
-        if (line.includes('--extension_server_port')) {
-            const parts = line.trim().split(/\s+/);
-            const pid = parseInt(parts[0], 10);
-            const cmd = line.substring(parts[0].length).trim();
+/**
+ * Converts a workspace folder path to the workspace_id format
+ * used by the language server's --workspace_id argument.
+ * e.g. "/Users/me/My Project" → "file_Users_me_My_20Project"
+ */
+function toWorkspaceId(folderPath: string): string {
+    return 'file' + folderPath.replace(/ /g, '_20').replace(/\//g, '_');
+}
 
-            const port = cmd.match(/--extension_server_port[=\s]+(\d+)/);
-            const token = cmd.match(/--csrf_token[=\s]+([a-zA-Z0-9\-]+)/);
+function parseUnix(stdout: string, workspacePath?: string): ParsedProcess | null {
+    const wsId = workspacePath ? toWorkspaceId(workspacePath) : null;
+    const lines = stdout.split('\n').filter(l => l.includes('--extension_server_port'));
 
-            return {
-                pid,
-                extensionPort: port ? parseInt(port[1], 10) : 0,
-                csrfToken: token ? token[1] : '',
-            };
-        }
-    }
-    return null;
+    // Prefer the line matching our workspace, fall back to first match
+    const target = (wsId && lines.find(l => l.includes(wsId))) || lines[0];
+    if (!target) { return null; }
+
+    const parts = target.trim().split(/\s+/);
+    const pid = parseInt(parts[0], 10);
+    const cmd = target.substring(parts[0].length).trim();
+
+    const port = cmd.match(/--extension_server_port[=\s]+(\d+)/);
+    const token = cmd.match(/--csrf_token[=\s]+([a-zA-Z0-9\-]+)/);
+
+    return {
+        pid,
+        extensionPort: port ? parseInt(port[1], 10) : 0,
+        csrfToken: token ? token[1] : '',
+    };
 }
 
 async function getListeningPorts(pid: number): Promise<number[]> {

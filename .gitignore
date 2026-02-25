@@ -2,3 +2,5 @@ node_modules/
 out/
 *.vsix
 .vscode-test/
+.agent/
+RELEASING.md

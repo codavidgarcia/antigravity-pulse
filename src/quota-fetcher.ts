@@ -249,5 +249,10 @@ function formatTime(ms: number): string {
     const mins = Math.ceil(ms / 60_000);
     if (mins < 60) { return `${mins}m`; }
     const h = Math.floor(mins / 60);
+    if (h >= 24) {
+        const d = Math.floor(h / 24);
+        const remH = h % 24;
+        return remH > 0 ? `${d}d ${remH}h` : `${d}d`;
+    }
     return `${h}h ${mins % 60}m`;
 }

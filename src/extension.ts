@@ -61,7 +61,8 @@ async function detectAndStart() {
 }
 
 async function detectProcess() {
-    processInfo = await findAntigravityProcess();
+    const wsPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    processInfo = await findAntigravityProcess(wsPath);
 }
 
 async function refreshQuota() {
@@ -76,7 +77,7 @@ async function refreshQuota() {
         updateStatusBar(snapshot);
     } catch {
         // Process might have restarted – re-detect once
-        processInfo = await findAntigravityProcess();
+        processInfo = await findAntigravityProcess(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
         if (processInfo) {
             try {
                 const snapshot = await fetchQuota(processInfo.port, processInfo.csrfToken);
@@ -93,7 +94,7 @@ async function refreshQuota() {
 
 function getIntervalMs(): number {
     const cfg = vscode.workspace.getConfiguration('antigravityPulse');
-    return Math.max(30, cfg.get<number>('pollingInterval', 120)) * 1000;
+    return Math.max(30, cfg.get<number>('pollingInterval', 30)) * 1000;
 }
 
 function startPolling() {
@@ -164,7 +165,11 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
         const emoji = pct > 50 ? '🟢' : pct > 20 ? '🟡' : '🔴';
         const bar = visualBar(pct);
 
-        const resetLocal = pool.resetTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const msUntilReset = pool.resetTime.getTime() - Date.now();
+        const resetLocal = msUntilReset > 86_400_000
+            ? pool.resetTime.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
+            pool.resetTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+            : pool.resetTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         md.appendMarkdown(`**${emoji} ${pool.displayName}** — ${pct.toFixed(0)}%\n\n`);
         md.appendMarkdown(`\`${bar}\` resets in **${pool.timeUntilReset}** _(${resetLocal})_\n\n`);
 
