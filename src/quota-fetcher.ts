@@ -81,38 +81,48 @@ function classifyFamily(label: string, modelId: string): string {
 
 // ─── Pool naming from members ───────────────────────────────────────
 
-/** Given a pool's models, derive a short display name */
-function derivePoolName(models: ModelQuota[]): { id: string; displayName: string } {
-    const families = new Set(models.map(m => m.family));
-    const hasPro = families.has('gemini');
-    const hasFlash = families.has('gemini_flash');
-    const hasClaudeOrGpt = families.has('claude') || families.has('gpt');
-
-    // All families share the same pool (identical quota + reset time)
-    if ((hasPro || hasFlash) && hasClaudeOrGpt) {
+/**
+ * Given a pool's models, derive a short display name.
+ * "All Models" is reserved for when there is genuinely a single pool
+ * containing every model. When pools split (different quotas/reset times),
+ * each pool gets a specific, descriptive name.
+ */
+function derivePoolName(models: ModelQuota[], totalPoolCount: number): { id: string; displayName: string } {
+    // Single pool → it truly IS all models
+    if (totalPoolCount === 1) {
         return { id: 'all', displayName: 'All Models' };
     }
 
-    // Case 1: Both Pro and Flash share the same pool
-    if (hasPro && hasFlash) {
+    const families = new Set(models.map(m => m.family));
+    const hasPro = families.has('gemini');
+    const hasFlash = families.has('gemini_flash');
+    const hasClaude = families.has('claude');
+    const hasGpt = families.has('gpt');
+    const hasClaudeOrGpt = hasClaude || hasGpt;
+
+    // Pure Gemini pools
+    if (hasPro && hasFlash && !hasClaudeOrGpt) {
         return { id: 'gemini', displayName: 'Gemini' };
     }
-    // Case 2: Only Pro models in this pool
-    if (hasPro && !hasFlash) {
+    if (hasPro && !hasFlash && !hasClaudeOrGpt) {
         return { id: 'gemini_pro', displayName: 'Gemini Pro' };
     }
-    // Case 3: Only Flash models in this pool
-    if (hasFlash && !hasPro) {
+    if (hasFlash && !hasPro && !hasClaudeOrGpt) {
         return { id: 'gemini_flash', displayName: 'Gemini Flash' };
     }
 
-    // Claude + GPT together
-    if (hasClaudeOrGpt) {
-        return { id: 'claude_gpt', displayName: 'Claude' };
+    // Claude/GPT pool — display both in tooltip, status bar shortens via POOL_SHORT
+    if (hasClaudeOrGpt && !hasPro && !hasFlash) {
+        return { id: 'claude_gpt', displayName: 'Claude · GPT' };
     }
 
-    // Fallback: use first model's label
-    return { id: 'other', displayName: models[0]?.label || 'Other' };
+    // Mixed pool that isn't everything (e.g. Flash + Claude when Pro is separate)
+    // Compose a descriptive name from the families present
+    const parts: string[] = [];
+    if (hasPro) { parts.push('Gem Pro'); }
+    if (hasFlash) { parts.push('Gem Flash'); }
+    if (hasClaudeOrGpt) { parts.push('Claude'); }
+    return { id: 'mixed', displayName: parts.join(' & ') };
 }
 
 // ─── Fetcher ────────────────────────────────────────────────────────
@@ -248,7 +258,7 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
     });
 
     for (const members of sortedBuckets) {
-        const { id, displayName } = derivePoolName(members);
+        const { id, displayName } = derivePoolName(members, sortedBuckets.length);
         const rep = members.reduce((a, b) =>
             a.remainingPct < b.remainingPct ? a : b
         );

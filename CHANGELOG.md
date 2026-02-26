@@ -2,6 +2,12 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.3.9] - 2026-02-26
+
+### Fixed
+- Pool label "All Models" now only appears when all models genuinely share the same pool. When quotas diverge (e.g. Gemini Pro exhausted while Flash/Claude remain), each pool gets a specific name like "Gem Flash & Claude" instead of "All Models"
+- Progress bar no longer wraps to a second line on narrow tooltips (reduced from 20 to 15 characters), preventing the "double-height bar" visual glitch on Windows
+
 ## [1.3.8] - 2026-02-26
 
 ### Added

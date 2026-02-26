@@ -226,7 +226,7 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
 }
 
 function visualBar(pct: number): string {
-    const total = 20;
+    const total = 15;
     const filled = Math.round((pct / 100) * total);
     const empty = total - filled;
     return '█'.repeat(filled) + '░'.repeat(empty);
