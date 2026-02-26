@@ -2,6 +2,16 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.3.8] - 2026-02-26
+
+### Added
+- Optional reset countdown in the status bar — see time until quota resets at a glance: `🟢 Gemini 80% [2h 15m] | 🟡 Claude 40% [45m]`
+- New setting `antigravityPulse.showResetTime` to enable/disable the countdown
+- New command **Toggle Reset Countdown in Status Bar** (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+
+### Fixed
+- Status bar now shows "All Models 100%" instead of "all 100%" when all models share the same pool
+
 ## [1.3.7] - 2026-02-25
 
 ### Fixed

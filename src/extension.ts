@@ -31,6 +31,21 @@ export async function activate(ctx: vscode.ExtensionContext) {
             if (!processInfo) { await detectProcess(); }
             await refreshQuota();
             showRefreshConfirmation();
+        }),
+        vscode.commands.registerCommand('antigravityPulse.toggleClockFormat', async () => {
+            const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+            const current = cfg.get<string>('clockFormat', 'auto');
+            const next = current === 'auto' ? '12h' : current === '12h' ? '24h' : 'auto';
+            await cfg.update('clockFormat', next, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Clock format: ${next}`);
+            if (lastSnapshot) { updateStatusBar(lastSnapshot); }
+        }),
+        vscode.commands.registerCommand('antigravityPulse.toggleResetTime', async () => {
+            const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+            const current = cfg.get<boolean>('showResetTime', false);
+            await cfg.update('showResetTime', !current, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Reset time in status bar: ${!current ? 'on' : 'off'}`);
+            if (lastSnapshot) { updateStatusBar(lastSnapshot); }
         })
     );
 
@@ -110,6 +125,7 @@ function stopPolling() {
 
 /** Compact pool labels for the status bar */
 const POOL_SHORT: Record<string, string> = {
+    all: 'All Models',
     gemini: 'Gemini',
     gemini_pro: 'Gem Pro',
     gemini_flash: 'Gem Flash',
@@ -125,13 +141,19 @@ function healthDot(pct: number): string {
 
 function updateStatusBar(snap: QuotaSnapshot) {
     if (snap.pools.length > 0) {
-        // ── Compact status bar: 🟢Gem 85 🟡CL 42 🟢G2.5 90 ──
+        const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+        const showReset = cfg.get<boolean>('showResetTime', false);
+
         const parts: string[] = [];
 
         for (const pool of snap.pools) {
-            const short = POOL_SHORT[pool.id] || pool.id;
+            const short = POOL_SHORT[pool.id] || pool.displayName;
             const pct = Math.round(pool.remainingPct);
-            parts.push(`${healthDot(pool.remainingPct)} ${short} ${pct}%`);
+            let part = `${healthDot(pool.remainingPct)} ${short} ${pct}%`;
+            if (showReset && pool.timeUntilReset) {
+                part += ` [${pool.timeUntilReset}]`;
+            }
+            parts.push(part);
         }
 
         statusBarItem.text = parts.join(' | ');

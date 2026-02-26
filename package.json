@@ -2,7 +2,7 @@
     "name": "antigravity-pulse",
     "displayName": "Antigravity Pulse",
     "description": "100% local & super lightweight Antigravity quota monitor",
-    "version": "1.3.7",
+    "version": "1.3.8",
     "publisher": "codavidgarcia",
     "engines": {
         "vscode": "^1.90.0"
@@ -20,6 +20,14 @@
             {
                 "command": "antigravityPulse.refresh",
                 "title": "Antigravity Pulse: Refresh"
+            },
+            {
+                "command": "antigravityPulse.toggleClockFormat",
+                "title": "Antigravity Pulse: Toggle Clock Format"
+            },
+            {
+                "command": "antigravityPulse.toggleResetTime",
+                "title": "Antigravity Pulse: Toggle Reset Countdown in Status Bar"
             }
         ],
         "configuration": {
@@ -40,6 +48,11 @@
                         "24h"
                     ],
                     "description": "Clock format for reset times: auto (OS locale), 12h, or 24h"
+                },
+                "antigravityPulse.showResetTime": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Show the time until quota reset next to each pool in the status bar"
                 }
             }
         }

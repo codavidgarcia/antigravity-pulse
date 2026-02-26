@@ -15,6 +15,14 @@
 
 Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers.
 
+### New in 1.3.8
+
+See your reset time directly from the status bar:
+
+`🟢 Gemini 80% [2h 15m] | 🟡 Claude 40% [45m]`
+
+`Cmd+Shift+P` (or `Ctrl+Shift+P`) → search **Antigravity Pulse** to toggle this and other settings.
+
 ---
 
 ## Why Antigravity Pulse?
@@ -96,6 +104,7 @@ Hover over the status bar item for a detailed, formatted breakdown:
 |---|---|---|
 | `antigravityPulse.pollingInterval` | `30` | Refresh interval in seconds (min: 30) |
 | `antigravityPulse.clockFormat` | `auto` | Clock format for reset times: `auto` (OS locale), `12h`, or `24h` |
+| `antigravityPulse.showResetTime` | `false` | Show time until quota reset next to each pool in the status bar |
 
 ## Requirements
 
