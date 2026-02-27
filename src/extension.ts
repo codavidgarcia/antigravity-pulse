@@ -15,6 +15,7 @@ let statusBarItem: vscode.StatusBarItem;
 let pollingTimer: ReturnType<typeof setInterval> | undefined;
 let processInfo: ProcessInfo | null = null;
 let lastSnapshot: QuotaSnapshot | null = null;
+let windowFocused = true;
 
 // ─── Activate ───────────────────────────────────────────────────────
 
@@ -46,6 +47,34 @@ export async function activate(ctx: vscode.ExtensionContext) {
             await cfg.update('showResetTime', !current, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage(`Reset time in status bar: ${!current ? 'on' : 'off'}`);
             if (lastSnapshot) { updateStatusBar(lastSnapshot); }
+        }),
+        vscode.commands.registerCommand('antigravityPulse.toggleSmartPolling', async () => {
+            const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+            const current = cfg.get<boolean>('smartPolling', true);
+            await cfg.update('smartPolling', !current, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Smart polling: ${!current ? 'on' : 'off'}`);
+            // Apply immediately: if disabling smart polling while unfocused, restart polling
+            if (current && !windowFocused) {
+                startPolling();
+            }
+        })
+    );
+
+    // Smart polling: pause when window is unfocused, resume on focus
+    ctx.subscriptions.push(
+        vscode.window.onDidChangeWindowState((state) => {
+            windowFocused = state.focused;
+            const smartPolling = vscode.workspace.getConfiguration('antigravityPulse').get<boolean>('smartPolling', true);
+            if (!smartPolling) { return; }
+
+            if (state.focused) {
+                // Immediate refresh + restart polling on regain focus
+                refreshQuota();
+                startPolling();
+            } else {
+                // Stop polling when user leaves Antigravity
+                stopPolling();
+            }
         })
     );
 

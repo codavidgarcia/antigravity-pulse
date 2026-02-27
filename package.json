@@ -2,7 +2,7 @@
     "name": "antigravity-pulse",
     "displayName": "Antigravity Pulse",
     "description": "100% local & super lightweight Antigravity quota monitor",
-    "version": "1.3.9",
+    "version": "1.4.0",
     "publisher": "codavidgarcia",
     "engines": {
         "vscode": "^1.90.0"
@@ -28,6 +28,10 @@
             {
                 "command": "antigravityPulse.toggleResetTime",
                 "title": "Antigravity Pulse: Toggle Reset Countdown in Status Bar"
+            },
+            {
+                "command": "antigravityPulse.toggleSmartPolling",
+                "title": "Antigravity Pulse: Toggle Smart Polling"
             }
         ],
         "configuration": {
@@ -53,6 +57,11 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Show the time until quota reset next to each pool in the status bar"
+                },
+                "antigravityPulse.smartPolling": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Pause polling when Antigravity is not focused and resume on return"
                 }
             }
         }

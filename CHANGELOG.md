@@ -2,6 +2,15 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.4.0] - 2026-02-27
+
+### Added
+- Smart polling — polling pauses entirely when the Antigravity window is not focused and resumes with an immediate refresh when you return, reducing unnecessary CPU and battery usage
+- New command **Toggle Smart Polling** (`Cmd+Shift+P` / `Ctrl+Shift+P`) and setting `antigravityPulse.smartPolling` to enable/disable it
+
+### Changed
+- README install instructions now recommend searching `Antigravity Pulse @sort:name` for easier discovery
+
 ## [1.3.9] - 2026-02-26
 
 ### Fixed

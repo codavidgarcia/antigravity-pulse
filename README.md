@@ -15,11 +15,13 @@
 
 Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers.
 
-### New in 1.3.8
+### New since 1.3.8
 
 See your reset time directly from the status bar:
 
 `🟢 Gemini 80% [2h 15m] | 🟡 Claude 40% [45m]`
+
+Plus **smart polling** — the extension now pauses all background refreshes when you leave Antigravity and resumes instantly when you come back.
 
 `Cmd+Shift+P` (or `Ctrl+Shift+P`) → search **Antigravity Pulse** to toggle this and other settings.
 
@@ -43,7 +45,7 @@ Everything runs **100% on your machine**. The extension reads quota data from th
 The entire extension is **85 KB** unpacked. No bundled webviews, no CSS frameworks, no localization files. Three TypeScript files compiled to plain JavaScript.
 
 - Activates in milliseconds
-- Polls every 30 seconds with a single local HTTPS POST (~1ms round trip)
+- Smart polling: refreshes every 30 seconds while Antigravity is focused, pauses entirely when you switch away
 - Zero dependencies beyond the VS Code API
 
 ## Clear at a glance
@@ -87,7 +89,7 @@ Hover over the status bar item for a detailed, formatted breakdown:
 
 ## Install
 
-**Install from [Open VSX](https://open-vsx.org/extension/codavidgarcia/antigravity-pulse)**. Search for **Antigravity Pulse** in your Extensions panel and click Install. You'll get automatic updates with every new release.
+**Install from [Open VSX](https://open-vsx.org/extension/codavidgarcia/antigravity-pulse)**. In the Extensions panel, search for **`Antigravity Pulse @sort:name`** to find the extension directly, then click Install. You'll get automatic updates with every new release.
 
 <details>
 <summary>Manual install (no auto-updates)</summary>
@@ -105,6 +107,7 @@ Hover over the status bar item for a detailed, formatted breakdown:
 | `antigravityPulse.pollingInterval` | `30` | Refresh interval in seconds (min: 30) |
 | `antigravityPulse.clockFormat` | `auto` | Clock format for reset times: `auto` (OS locale), `12h`, or `24h` |
 | `antigravityPulse.showResetTime` | `false` | Show time until quota reset next to each pool in the status bar |
+| `antigravityPulse.smartPolling` | `true` | Pause polling when Antigravity is not focused and resume on return |
 
 ## Requirements
 
