@@ -231,7 +231,7 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
             pool.resetTime.toLocaleTimeString([], timeOpts)
             : pool.resetTime.toLocaleTimeString([], timeOpts);
         md.appendMarkdown(`**${emoji} ${pool.displayName}** — ${pct.toFixed(0)}%\n\n`);
-        md.appendMarkdown(`\`${bar}\` resets in **${pool.timeUntilReset}** _(${resetLocal})_\n\n`);
+        md.appendMarkdown(`<code style="line-height:1">${bar}</code> resets in **${pool.timeUntilReset}** _(${resetLocal})_\n\n`);
 
         // Individual models within the pool
         if (pool.models.length > 1) {

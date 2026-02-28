@@ -2,6 +2,11 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.4.1] - 2026-02-28
+
+### Fixed
+- Progress bar in tooltip renders at double height on Windows — the `░` glyph inflated the line box inside backtick code spans; now rendered via HTML `<code>` with constrained `line-height`
+
 ## [1.4.0] - 2026-02-27
 
 ### Added

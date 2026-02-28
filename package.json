@@ -2,7 +2,7 @@
     "name": "antigravity-pulse",
     "displayName": "Antigravity Pulse",
     "description": "100% local & super lightweight Antigravity quota monitor",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "publisher": "codavidgarcia",
     "engines": {
         "vscode": "^1.90.0"
