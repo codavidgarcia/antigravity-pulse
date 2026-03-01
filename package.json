@@ -9,8 +9,20 @@
     },
     "icon": "icon.png",
     "categories": [
-        "Other"
+        "Machine Learning",
+        "Visualization"
     ],
+    "keywords": [
+        "antigravity",
+        "quota",
+        "ai",
+        "codeium",
+        "windsurf"
+    ],
+    "galleryBanner": {
+        "color": "#1a1a2e",
+        "theme": "dark"
+    },
     "activationEvents": [
         "onStartupFinished"
     ],
