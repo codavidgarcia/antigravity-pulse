@@ -2,10 +2,15 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
-## [1.4.1] - 2026-02-28
+## [1.4.2] - 2026-02-28
 
 ### Fixed
-- Progress bar in tooltip renders at double height on Windows — the `░` glyph inflated the line box inside backtick code spans; now rendered via HTML `<code>` with constrained `line-height`
+- Progress bar in tooltip renders at double height on Windows — the `░` glyph inflated the line box inside code spans; bar now rendered as plain text to avoid monospace font metrics
+
+### Changed
+- Extension categories moved from "Other" to "Machine Learning" + "Visualization" for better marketplace placement
+- Added search keywords (`antigravity`, `quota`, `ai`, `codeium`, `windsurf`) for marketplace discoverability
+- Added gallery banner with dark theme for branded marketplace page
 
 ## [1.4.0] - 2026-02-27
 
