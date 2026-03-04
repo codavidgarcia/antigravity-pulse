@@ -2,7 +2,7 @@
     "name": "antigravity-pulse",
     "displayName": "Antigravity Pulse",
     "description": "100% local & super lightweight Antigravity quota monitor",
-    "version": "1.4.2",
+    "version": "1.4.3",
     "publisher": "codavidgarcia",
     "engines": {
         "vscode": "^1.90.0"
@@ -44,6 +44,10 @@
             {
                 "command": "antigravityPulse.toggleSmartPolling",
                 "title": "Antigravity Pulse: Toggle Smart Polling"
+            },
+            {
+                "command": "antigravityPulse.cycleDisplayMode",
+                "title": "Antigravity Pulse: Cycle Display Mode (Full / Compact)"
             }
         ],
         "configuration": {
@@ -74,6 +78,19 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Pause polling when Antigravity is not focused and resume on return"
+                },
+                "antigravityPulse.displayMode": {
+                    "type": "string",
+                    "default": "full",
+                    "enum": [
+                        "full",
+                        "compact"
+                    ],
+                    "enumDescriptions": [
+                        "Full pool names and detailed reset times",
+                        "Abbreviated pool names and simplified reset times"
+                    ],
+                    "description": "Status bar display density: full (default) or compact for narrow windows"
                 }
             }
         }

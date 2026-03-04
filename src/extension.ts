@@ -57,6 +57,14 @@ export async function activate(ctx: vscode.ExtensionContext) {
             if (current && !windowFocused) {
                 startPolling();
             }
+        }),
+        vscode.commands.registerCommand('antigravityPulse.cycleDisplayMode', async () => {
+            const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+            const current = cfg.get<string>('displayMode', 'full');
+            const next = current === 'full' ? 'compact' : 'full';
+            await cfg.update('displayMode', next, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Display mode: ${next}`);
+            if (lastSnapshot) { updateStatusBar(lastSnapshot); }
         })
     );
 
@@ -162,6 +170,36 @@ const POOL_SHORT: Record<string, string> = {
     other: 'Other',
 };
 
+/** Even shorter labels for compact display mode */
+const POOL_COMPACT: Record<string, string> = {
+    all: 'All',
+    gemini: 'Gem',
+    gemini_pro: 'Pro',
+    gemini_flash: 'Flash',
+    claude_gpt: 'Cla',
+    other: 'Other',
+};
+
+/**
+ * In compact mode, when only ONE Gemini variant exists (Pro without Flash,
+ * or vice versa), prefix it with "Gem" so it's not a bare "Pro" or "Flash".
+ * When BOTH coexist, "Pro" and "Flash" are self-explanatory.
+ */
+function compactPoolLabel(poolId: string, allPoolIds: string[]): string {
+    if (poolId === 'gemini_pro' || poolId === 'gemini_flash') {
+        const hasBoth = allPoolIds.includes('gemini_pro') && allPoolIds.includes('gemini_flash');
+        if (!hasBoth) {
+            return 'Gem';
+        }
+    }
+    return POOL_COMPACT[poolId] || poolId;
+}
+
+/** Simplify reset time to major unit only: "2h 15m" → "2h", "1d 3h" → "1d" */
+function compactTime(time: string): string {
+    return time.split(' ')[0];
+}
+
 function healthDot(pct: number): string {
     if (pct > 50) { return '🟢'; }
     if (pct > 20) { return '🟡'; }
@@ -172,15 +210,21 @@ function updateStatusBar(snap: QuotaSnapshot) {
     if (snap.pools.length > 0) {
         const cfg = vscode.workspace.getConfiguration('antigravityPulse');
         const showReset = cfg.get<boolean>('showResetTime', false);
+        const mode = cfg.get<string>('displayMode', 'full');
+        const isCompact = mode === 'compact';
 
+        const allPoolIds = snap.pools.map(p => p.id);
         const parts: string[] = [];
 
         for (const pool of snap.pools) {
-            const short = POOL_SHORT[pool.id] || pool.displayName;
+            const name = isCompact
+                ? compactPoolLabel(pool.id, allPoolIds)
+                : (POOL_SHORT[pool.id] || pool.displayName);
             const pct = Math.round(pool.remainingPct);
-            let part = `${healthDot(pool.remainingPct)} ${short} ${pct}%`;
+            let part = `${healthDot(pool.remainingPct)} ${name} ${pct}%`;
             if (showReset && pool.timeUntilReset) {
-                part += ` [${pool.timeUntilReset}]`;
+                const time = isCompact ? compactTime(pool.timeUntilReset) : pool.timeUntilReset;
+                part += ` [${time}]`;
             }
             parts.push(part);
         }
@@ -215,7 +259,7 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
     md.isTrusted = true;
     md.supportHtml = true;
 
-    md.appendMarkdown('### Antigravity Quota\n\n');
+    md.appendMarkdown('### Antigravity Pulse\n\n');
 
     // ── Per-pool sections ──
     for (let i = 0; i < snap.pools.length; i++) {

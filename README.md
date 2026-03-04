@@ -15,15 +15,15 @@
 
 Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers.
 
-### New since 1.3.8
+### New since 1.4.3
 
-See your reset time directly from the status bar:
+**Compact display mode** for narrow windows — abbreviated pool names and simplified reset times:
 
-`🟢 Gemini 80% [2h 15m] | 🟡 Claude 40% [45m]`
+`🟢 Pro 80% [2h] | 🟡 Flash 60% [5h] | 🔴 Cla 20% [52m]`
 
-Plus **smart polling** — the extension now pauses all background refreshes when you leave Antigravity and resumes instantly when you come back.
+`Cmd+Shift+P` (or `Ctrl+Shift+P`) → **Cycle Display Mode** to switch between full and compact.
 
-`Cmd+Shift+P` (or `Ctrl+Shift+P`) → search **Antigravity Pulse** to toggle this and other settings.
+Also since 1.3.8: **reset countdown** in the status bar and **smart polling** that pauses when you leave Antigravity.
 
 ---
 
@@ -64,9 +64,9 @@ Antigravity groups AI models into **independent quota pools**, each resetting ev
 
 | Label | Pool | Includes |
 |---|---|---|
-| **Gemini** | Gemini 3.x | Gemini 3 Pro (High), Gemini 3 Pro (Low), Gemini 3 Flash |
-| **Claude** | Claude / GPT | Claude Sonnet 4.5, Claude Opus 4.5, GPT-OSS 120B |
-| **Gem Flash** | Gemini 3 Flash | Gemini 3 Flash |
+| **Gemini** | Gemini 3.x | Gemini 3.1 Pro (High), Gemini 3.1 Pro (Low) |
+| **Claude** | Claude / GPT | Claude Sonnet 4.6, Claude Opus 4.6, GPT-OSS 120B |
+| **Gem Flash** | Gemini 3 Flash |
 
 Each pool's quota is tracked independently. Exhausting Claude/GPT does not affect your Gemini quota.
 
@@ -108,6 +108,7 @@ Hover over the status bar item for a detailed, formatted breakdown:
 | `antigravityPulse.clockFormat` | `auto` | Clock format for reset times: `auto` (OS locale), `12h`, or `24h` |
 | `antigravityPulse.showResetTime` | `false` | Show time until quota reset next to each pool in the status bar |
 | `antigravityPulse.smartPolling` | `true` | Pause polling when Antigravity is not focused and resume on return |
+| `antigravityPulse.displayMode` | `full` | Status bar density: `full` (all details) or `compact` (abbreviated names and times) |
 
 ## Requirements
 

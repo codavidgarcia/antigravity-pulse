@@ -2,6 +2,18 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.4.3] - 2026-03-04
+
+### Added
+- Compact display mode for narrow windows — abbreviated pool names and simplified reset times in the status bar
+- New setting `antigravityPulse.displayMode` (`full` / `compact`)
+- New command **Cycle Display Mode** (`Cmd+Shift+P` / `Ctrl+Shift+P`) to switch between full and compact
+
+### Compact mode details
+- Pool names are shortened: Gemini → Gem, Claude → Cla, All Models → All
+- When both Gemini Pro and Flash coexist, the redundant "Gem" prefix is dropped: Pro, Flash
+- Reset times are simplified to the major unit: `2h 15m` → `[2h]`, `1d 3h` → `[1d]`
+
 ## [1.4.2] - 2026-02-28
 
 ### Fixed

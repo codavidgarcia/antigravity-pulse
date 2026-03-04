@@ -1,8 +1,29 @@
-.vscode/**
+# Files to exclude from the .vsix package
+# Only ship what the extension actually needs at runtime
+
+# Source code (compiled JS is in out/)
 src/**
-node_modules/**
-.agent/**
 tsconfig.json
+
+# Dev and internal docs
+RELEASING.md
+TODO.local.md
+
+# CI/CD
+.github/**
+
+# TypeScript artifacts not needed at runtime
+out/*.d.ts
+out/*.js.map
+
+# Screenshot (README references the GitHub raw URL)
+screenshot.png
+
+# Git, editor, and agent config
 .gitignore
-*.ts
-!out/**
+.vscode/**
+.agent/**
+
+# Build artifacts
+node_modules/**
+*.vsix
