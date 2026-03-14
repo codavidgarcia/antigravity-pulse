@@ -2,7 +2,7 @@
     "name": "antigravity-pulse",
     "displayName": "Antigravity Pulse",
     "description": "100% local & super lightweight Antigravity quota monitor",
-    "version": "1.4.3",
+    "version": "1.5.0",
     "publisher": "codavidgarcia",
     "engines": {
         "vscode": "^1.90.0"
@@ -29,6 +29,10 @@
     "main": "./out/extension.js",
     "contributes": {
         "commands": [
+            {
+                "command": "antigravityPulse.showMenu",
+                "title": "Antigravity Pulse: Options"
+            },
             {
                 "command": "antigravityPulse.refresh",
                 "title": "Antigravity Pulse: Refresh"

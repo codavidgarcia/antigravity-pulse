@@ -2,6 +2,18 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.5.0] - 2026-03-14
+
+### Added
+- **Click-to-options menu** — clicking the status bar now opens a quick-pick menu with all extension controls in one place: refresh quota, toggle display mode, clock format, reset time, smart polling, and a shortcut to open Pulse settings
+- Each menu item shows its **current value** and previews the next state (e.g. `Display: full → compact`)
+- Refresh Quota option shows the timestamp of the last successful refresh
+
+### Changed
+- Status bar click behavior changed from "refresh" to "open options menu" — refresh is now the first item in the menu
+- Hover tooltip footer updated from "Click to refresh" to "Click for options" across all states (loading, error, no data, active)
+- Removed redundant `showInformationMessage` notifications from individual toggle commands — feedback is now visual through the menu and status bar
+
 ## [1.4.3] - 2026-03-04
 
 ### Added

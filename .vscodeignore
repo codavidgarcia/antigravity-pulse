@@ -16,8 +16,9 @@ TODO.local.md
 out/*.d.ts
 out/*.js.map
 
-# Screenshot (README references the GitHub raw URL)
+# Screenshots (README references the GitHub raw URL)
 screenshot.png
+options-screenshot.png
 
 # Git, editor, and agent config
 .gitignore

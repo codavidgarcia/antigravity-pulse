@@ -22,11 +22,12 @@ let windowFocused = true;
 export async function activate(ctx: vscode.ExtensionContext) {
     // Status bar – right-aligned, high priority
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
-    statusBarItem.command = 'antigravityPulse.refresh';
+    statusBarItem.command = 'antigravityPulse.showMenu';
     ctx.subscriptions.push(statusBarItem);
 
     // Commands
     ctx.subscriptions.push(
+        vscode.commands.registerCommand('antigravityPulse.showMenu', () => showQuickMenu()),
         vscode.commands.registerCommand('antigravityPulse.refresh', async () => {
             showLoading();
             if (!processInfo) { await detectProcess(); }
@@ -38,21 +39,18 @@ export async function activate(ctx: vscode.ExtensionContext) {
             const current = cfg.get<string>('clockFormat', 'auto');
             const next = current === 'auto' ? '12h' : current === '12h' ? '24h' : 'auto';
             await cfg.update('clockFormat', next, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(`Clock format: ${next}`);
             if (lastSnapshot) { updateStatusBar(lastSnapshot); }
         }),
         vscode.commands.registerCommand('antigravityPulse.toggleResetTime', async () => {
             const cfg = vscode.workspace.getConfiguration('antigravityPulse');
             const current = cfg.get<boolean>('showResetTime', false);
             await cfg.update('showResetTime', !current, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(`Reset time in status bar: ${!current ? 'on' : 'off'}`);
             if (lastSnapshot) { updateStatusBar(lastSnapshot); }
         }),
         vscode.commands.registerCommand('antigravityPulse.toggleSmartPolling', async () => {
             const cfg = vscode.workspace.getConfiguration('antigravityPulse');
             const current = cfg.get<boolean>('smartPolling', true);
             await cfg.update('smartPolling', !current, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(`Smart polling: ${!current ? 'on' : 'off'}`);
             // Apply immediately: if disabling smart polling while unfocused, restart polling
             if (current && !windowFocused) {
                 startPolling();
@@ -63,7 +61,6 @@ export async function activate(ctx: vscode.ExtensionContext) {
             const current = cfg.get<string>('displayMode', 'full');
             const next = current === 'full' ? 'compact' : 'full';
             await cfg.update('displayMode', next, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(`Display mode: ${next}`);
             if (lastSnapshot) { updateStatusBar(lastSnapshot); }
         })
     );
@@ -237,7 +234,7 @@ function updateStatusBar(snap: QuotaSnapshot) {
 
     } else {
         statusBarItem.text = '$(rocket) AG';
-        statusBarItem.tooltip = 'Antigravity Pulse — no data yet';
+        statusBarItem.tooltip = 'Antigravity Pulse — no data yet\nClick for options';
         statusBarItem.backgroundColor = undefined;
     }
 
@@ -293,7 +290,7 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
 
     // Footer
     md.appendMarkdown('\n---\n\n');
-    md.appendMarkdown('_Click to refresh_');
+    md.appendMarkdown('_Click for options_');
 
     return md;
 }
@@ -305,11 +302,79 @@ function visualBar(pct: number): string {
     return '█'.repeat(filled) + '░'.repeat(empty);
 }
 
+// ─── Quick menu ─────────────────────────────────────────────────────
+
+async function showQuickMenu() {
+    const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+    const clockFormat = cfg.get<string>('clockFormat', 'auto');
+    const displayMode = cfg.get<string>('displayMode', 'full');
+    const showResetTime = cfg.get<boolean>('showResetTime', false);
+    const smartPolling = cfg.get<boolean>('smartPolling', true);
+
+    const items: (vscode.QuickPickItem & { action?: string })[] = [
+        {
+            label: '$(sync) Refresh Quota',
+            description: lastSnapshot
+                ? `last: ${lastSnapshot.timestamp.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                : '',
+            action: 'refresh',
+        },
+        { label: '', kind: vscode.QuickPickItemKind.Separator },
+        {
+            label: `$(screen-full) Display: ${displayMode}`,
+            description: displayMode === 'full' ? '→ compact' : '→ full',
+            action: 'displayMode',
+        },
+        {
+            label: `$(watch) Clock: ${clockFormat}`,
+            description: clockFormat === 'auto' ? '→ 12h' : clockFormat === '12h' ? '→ 24h' : '→ auto',
+            action: 'clockFormat',
+        },
+        {
+            label: `$(clock) Reset Time: ${showResetTime ? 'on' : 'off'}`,
+            description: showResetTime ? '→ hide' : '→ show in status bar',
+            action: 'resetTime',
+        },
+        {
+            label: `$(pulse) Smart Polling: ${smartPolling ? 'on' : 'off'}`,
+            description: smartPolling ? '→ disable' : '→ enable',
+            action: 'smartPolling',
+        },
+        { label: '', kind: vscode.QuickPickItemKind.Separator },
+        {
+            label: '$(gear) Open Pulse Settings',
+            action: 'settings',
+        },
+    ];
+
+    const pick = await vscode.window.showQuickPick(items, {
+        title: 'Antigravity Pulse',
+        placeHolder: 'Choose an action',
+    });
+
+    if (!pick?.action) { return; }
+
+    switch (pick.action) {
+        case 'refresh':
+            return vscode.commands.executeCommand('antigravityPulse.refresh');
+        case 'displayMode':
+            return vscode.commands.executeCommand('antigravityPulse.cycleDisplayMode');
+        case 'clockFormat':
+            return vscode.commands.executeCommand('antigravityPulse.toggleClockFormat');
+        case 'resetTime':
+            return vscode.commands.executeCommand('antigravityPulse.toggleResetTime');
+        case 'smartPolling':
+            return vscode.commands.executeCommand('antigravityPulse.toggleSmartPolling');
+        case 'settings':
+            return vscode.commands.executeCommand('workbench.action.openSettings', 'antigravityPulse');
+    }
+}
+
 // ─── States ─────────────────────────────────────────────────────────
 
 function showLoading() {
     statusBarItem.text = '$(sync~spin) AG';
-    statusBarItem.tooltip = 'Antigravity Pulse — detecting process…';
+    statusBarItem.tooltip = 'Antigravity Pulse — detecting process…\nClick for options';
     statusBarItem.backgroundColor = undefined;
     statusBarItem.show();
 }
@@ -329,7 +394,7 @@ function showRefreshConfirmation() {
 
 function showError(msg: string) {
     statusBarItem.text = '$(error) AG';
-    statusBarItem.tooltip = `Antigravity Pulse — ${msg}`;
+    statusBarItem.tooltip = `Antigravity Pulse — ${msg}\nClick for options`;
     statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
     statusBarItem.show();
 }

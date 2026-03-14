@@ -13,17 +13,28 @@
   <img src="https://raw.githubusercontent.com/codavidgarcia/antigravity-pulse/main/screenshot.png" alt="Antigravity Pulse in action" width="520">
 </p>
 
-Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers.
+Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers. Click for a quick-access options menu.
 
-### New since 1.4.3
+### New in 1.5.0
 
-**Compact display mode** for narrow windows — abbreviated pool names and simplified reset times:
+**Click-to-options menu** — click the status bar to open a quick-pick with all controls in one place:
 
-`🟢 Pro 80% [2h] | 🟡 Flash 60% [5h] | 🔴 Cla 20% [52m]`
+<p align="center">
+  <img src="https://raw.githubusercontent.com/codavidgarcia/antigravity-pulse/main/options-screenshot.png" alt="Options menu" width="520">
+</p>
 
-`Cmd+Shift+P` (or `Ctrl+Shift+P`) → **Cycle Display Mode** to switch between full and compact.
+- Refresh quota, toggle display mode, clock format, reset time, and smart polling
+- Each option shows its current value and previews the next state
+- Hover still shows the full quota overlay — click is now for actions
 
-Also since 1.3.8: **reset countdown** in the status bar and **smart polling** that pauses when you leave Antigravity.
+<details>
+<summary>Previous highlights</summary>
+
+- **1.4.3** — Compact display mode for narrow windows (`Cmd+Shift+P` → Cycle Display Mode)
+- **1.4.0** — Smart polling: pauses when you leave Antigravity, resumes on return
+- **1.3.8** — Reset countdown in the status bar
+
+</details>
 
 ---
 
