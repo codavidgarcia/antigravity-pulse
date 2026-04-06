@@ -15,21 +15,18 @@
 
 Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers. Click for a quick-access options menu.
 
-### New in 1.5.0
+### New in 1.6.0
 
-**Click-to-options menu** — click the status bar to open a quick-pick with all controls in one place:
+**Google One AI Credits** — your AI credit balance is now visible directly in the status bar:
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/codavidgarcia/antigravity-pulse/main/options-screenshot.png" alt="Options menu" width="520">
-</p>
-
-- Refresh quota, toggle display mode, clock format, reset time, and smart polling
-- Each option shows its current value and previews the next state
-- Hover still shows the full quota overlay — click is now for actions
+- Shows `✦ AI 23.5k` at a glance, with full balance in the tooltip (`✦ Google AI Credits — 23,473`)
+- Toggle on/off via the options menu or `antigravityPulse.showAICredits` setting
+- Automatically parsed from Antigravity's local API — no extra setup needed
 
 <details>
 <summary>Previous highlights</summary>
 
+- **1.5.0** — Click-to-options menu: click the status bar for a quick-pick with all controls
 - **1.4.3** — Compact display mode for narrow windows (`Cmd+Shift+P` → Cycle Display Mode)
 - **1.4.0** — Smart polling: pauses when you leave Antigravity, resumes on return
 - **1.3.8** — Reset countdown in the status bar
@@ -116,6 +113,7 @@ Hover over the status bar item for a detailed, formatted breakdown:
 | Setting | Default | Description |
 |---|---|---|
 | `antigravityPulse.pollingInterval` | `30` | Refresh interval in seconds (min: 30) |
+| `antigravityPulse.showAICredits` | `true` | Show Google One AI credits balance in the status bar |
 | `antigravityPulse.clockFormat` | `auto` | Clock format for reset times: `auto` (OS locale), `12h`, or `24h` |
 | `antigravityPulse.showResetTime` | `false` | Show time until quota reset next to each pool in the status bar |
 | `antigravityPulse.smartPolling` | `true` | Pause polling when Antigravity is not focused and resume on return |

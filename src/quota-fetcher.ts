@@ -43,8 +43,15 @@ export interface QuotaPool {
     models: ModelQuota[];
 }
 
+export interface AICredit {
+    creditType: string;       // e.g. "GOOGLE_ONE_AI"
+    creditAmount: number;
+    minimumForUsage: number;
+}
+
 export interface QuotaSnapshot {
     credits?: PromptCredits;
+    aiCredits: AICredit[];    // Google One AI credits etc.
     pools: QuotaPool[];       // auto-detected pools
     models: ModelQuota[];     // flat list, all models
     timestamp: Date;
@@ -62,6 +69,15 @@ interface ServerResponse {
         };
         cascadeModelConfigData?: {
             clientModelConfigs: any[];
+        };
+        userTier?: {
+            id: string;
+            name: string;
+            availableCredits?: {
+                creditType: string;
+                creditAmount: string;
+                minimumCreditAmountForUsage: string;
+            }[];
         };
     };
 }
@@ -274,7 +290,14 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
         });
     }
 
-    return { credits, pools, models, timestamp: new Date() };
+    // ── AI Credits (Google One, etc.) ──
+    const aiCredits: AICredit[] = (userStatus.userTier?.availableCredits || []).map(c => ({
+        creditType: c.creditType,
+        creditAmount: Number(c.creditAmount),
+        minimumForUsage: Number(c.minimumCreditAmountForUsage),
+    }));
+
+    return { credits, aiCredits, pools, models, timestamp: new Date() };
 }
 
 function formatTime(ms: number): string {

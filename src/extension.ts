@@ -9,7 +9,7 @@
 
 import * as vscode from 'vscode';
 import { findAntigravityProcess, ProcessInfo } from './process-finder';
-import { fetchQuota, QuotaSnapshot } from './quota-fetcher';
+import { fetchQuota, QuotaSnapshot, AICredit } from './quota-fetcher';
 
 let statusBarItem: vscode.StatusBarItem;
 let pollingTimer: ReturnType<typeof setInterval> | undefined;
@@ -61,6 +61,12 @@ export async function activate(ctx: vscode.ExtensionContext) {
             const current = cfg.get<string>('displayMode', 'full');
             const next = current === 'full' ? 'compact' : 'full';
             await cfg.update('displayMode', next, vscode.ConfigurationTarget.Global);
+            if (lastSnapshot) { updateStatusBar(lastSnapshot); }
+        }),
+        vscode.commands.registerCommand('antigravityPulse.toggleShowAICredits', async () => {
+            const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+            const current = cfg.get<boolean>('showAICredits', true);
+            await cfg.update('showAICredits', !current, vscode.ConfigurationTarget.Global);
             if (lastSnapshot) { updateStatusBar(lastSnapshot); }
         })
     );
@@ -203,15 +209,31 @@ function healthDot(pct: number): string {
     return '🔴';
 }
 
+function formatAICredits(credits: AICredit[]): string {
+    if (credits.length === 0) { return ''; }
+    const c = credits[0]; // Primary credit pool
+    if (c.creditAmount >= 1000) {
+        return `${(c.creditAmount / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+    }
+    return `${c.creditAmount}`;
+}
+
 function updateStatusBar(snap: QuotaSnapshot) {
     if (snap.pools.length > 0) {
         const cfg = vscode.workspace.getConfiguration('antigravityPulse');
         const showReset = cfg.get<boolean>('showResetTime', false);
+        const showAICredits = cfg.get<boolean>('showAICredits', true);
         const mode = cfg.get<string>('displayMode', 'full');
         const isCompact = mode === 'compact';
 
         const allPoolIds = snap.pools.map(p => p.id);
         const parts: string[] = [];
+
+        // AI credits badge (prepended)
+        if (showAICredits && snap.aiCredits.length > 0) {
+            const label = isCompact ? '' : 'AI ';
+            parts.push(`$(sparkle) ${label}${formatAICredits(snap.aiCredits)}`);
+        }
 
         for (const pool of snap.pools) {
             const name = isCompact
@@ -257,6 +279,15 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
     md.supportHtml = true;
 
     md.appendMarkdown('### Antigravity Pulse\n\n');
+
+    // ── AI Credits section ──
+    if (snap.aiCredits.length > 0) {
+        for (const c of snap.aiCredits) {
+            const label = c.creditType === 'GOOGLE_ONE_AI' ? 'Google AI Credits' : c.creditType;
+            md.appendMarkdown(`**✦ ${label}** — ${c.creditAmount.toLocaleString()}\n\n`);
+        }
+        md.appendMarkdown('---\n\n');
+    }
 
     // ── Per-pool sections ──
     for (let i = 0; i < snap.pools.length; i++) {
@@ -309,6 +340,7 @@ async function showQuickMenu() {
     const clockFormat = cfg.get<string>('clockFormat', 'auto');
     const displayMode = cfg.get<string>('displayMode', 'full');
     const showResetTime = cfg.get<boolean>('showResetTime', false);
+    const showAICredits = cfg.get<boolean>('showAICredits', true);
     const smartPolling = cfg.get<boolean>('smartPolling', true);
 
     const items: (vscode.QuickPickItem & { action?: string })[] = [
@@ -324,6 +356,11 @@ async function showQuickMenu() {
             label: `$(screen-full) Display: ${displayMode}`,
             description: displayMode === 'full' ? '→ compact' : '→ full',
             action: 'displayMode',
+        },
+        {
+            label: `$(sparkle) AI Credits: ${showAICredits ? 'on' : 'off'}`,
+            description: showAICredits ? '→ hide from status bar' : '→ show in status bar',
+            action: 'aiCredits',
         },
         {
             label: `$(watch) Clock: ${clockFormat}`,
@@ -359,6 +396,8 @@ async function showQuickMenu() {
             return vscode.commands.executeCommand('antigravityPulse.refresh');
         case 'displayMode':
             return vscode.commands.executeCommand('antigravityPulse.cycleDisplayMode');
+        case 'aiCredits':
+            return vscode.commands.executeCommand('antigravityPulse.toggleShowAICredits');
         case 'clockFormat':
             return vscode.commands.executeCommand('antigravityPulse.toggleClockFormat');
         case 'resetTime':

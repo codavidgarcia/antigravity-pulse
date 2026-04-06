@@ -52,6 +52,10 @@
             {
                 "command": "antigravityPulse.cycleDisplayMode",
                 "title": "Antigravity Pulse: Cycle Display Mode (Full / Compact)"
+            },
+            {
+                "command": "antigravityPulse.toggleShowAICredits",
+                "title": "Antigravity Pulse: Toggle AI Credits in Status Bar"
             }
         ],
         "configuration": {
@@ -95,6 +99,11 @@
                         "Abbreviated pool names and simplified reset times"
                     ],
                     "description": "Status bar display density: full (default) or compact for narrow windows"
+                },
+                "antigravityPulse.showAICredits": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show Google One AI credits balance in the status bar"
                 }
             }
         }

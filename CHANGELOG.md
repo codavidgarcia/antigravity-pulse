@@ -2,6 +2,20 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.6.0] - 2026-04-06
+
+### Added
+- **Google One AI Credits** — your AI credit balance (e.g. `✦ AI 23.5k`) is now displayed in the status bar, pulled from Antigravity's `GetUserStatus` API response (`userTier.availableCredits`)
+- New setting `antigravityPulse.showAICredits` (default: `true`) to show or hide the AI credits badge in the status bar
+- New command **Toggle AI Credits in Status Bar** (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+- AI credits toggle added to the click-to-options quick menu with current state preview
+- Tooltip now shows `✦ Google AI Credits — 23,473` (with locale formatting) at the top of the hover overlay
+
+### Technical
+- Extended `ServerResponse` type to parse the new `userTier` object from the API
+- New `AICredit` interface and `aiCredits` array in `QuotaSnapshot`
+- Smart formatting: `23.5k` in status bar, full `23,473` in tooltip
+
 ## [1.5.0] - 2026-03-14
 
 ### Added
