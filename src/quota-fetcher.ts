@@ -49,8 +49,15 @@ export interface AICredit {
     minimumForUsage: number;
 }
 
+export interface WeeklyLimit {
+    remainingPct: number;     // 0–100
+    resetTime: Date;
+    timeUntilReset: string;
+}
+
 export interface QuotaSnapshot {
     credits?: PromptCredits;
+    weekly: Record<string, WeeklyLimit>; // by model group: "gemini" | "3p" (Claude/GPT)
     aiCredits: AICredit[];    // Google One AI credits etc.
     pools: QuotaPool[];       // auto-detected pools
     models: ModelQuota[];     // flat list, all models
@@ -75,7 +82,7 @@ interface ServerResponse {
             name: string;
             availableCredits?: {
                 creditType: string;
-                creditAmount: string;
+                creditAmount?: string;
                 minimumCreditAmountForUsage: string;
             }[];
         };
@@ -143,19 +150,35 @@ function derivePoolName(models: ModelQuota[], totalPoolCount: number): { id: str
 
 // ─── Fetcher ────────────────────────────────────────────────────────
 
-export async function fetchQuota(port: number, csrfToken: string): Promise<QuotaSnapshot> {
-    const data = await postWithFallback<ServerResponse>(port, csrfToken,
-        '/exa.language_server_pb.LanguageServerService/GetUserStatus',
-        {
-            metadata: {
-                ideName: 'antigravity',
-                extensionName: 'antigravity',
-                locale: 'en',
-            },
-        }
-    );
+const LS_PATH = '/exa.language_server_pb.LanguageServerService/';
+const REQUEST_META = { metadata: { ideName: 'antigravity', extensionName: 'antigravity', locale: 'en' } };
 
-    return parseResponse(data);
+export async function fetchQuota(port: number, csrfToken: string): Promise<QuotaSnapshot> {
+    const data = await postWithFallback<ServerResponse>(port, csrfToken, LS_PATH + 'GetUserStatus', REQUEST_META);
+    const snap = parseResponse(data);
+    snap.weekly = await fetchWeeklyLimits(port, csrfToken);
+    return snap;
+}
+
+/** Weekly limits live in a separate RPC; optional, so failures never break the main quota. */
+async function fetchWeeklyLimits(port: number, csrfToken: string): Promise<Record<string, WeeklyLimit>> {
+    const weekly: Record<string, WeeklyLimit> = {};
+    try {
+        const res = await postWithFallback<{ response?: { groups?: any[] } }>(
+            port, csrfToken, LS_PATH + 'RetrieveUserQuotaSummary', REQUEST_META);
+        for (const group of res.response?.groups || []) {
+            // bucketId looks like "gemini-weekly" / "3p-5h"
+            const bucket = (group.buckets || []).find((b: any) => b.window === 'weekly');
+            if (!bucket) { continue; }
+            const resetTime = new Date(bucket.resetTime);
+            weekly[bucket.bucketId.split('-')[0]] = {
+                remainingPct: (bucket.remainingFraction ?? 0) * 100,
+                resetTime,
+                timeUntilReset: formatTime(resetTime.getTime() - Date.now()),
+            };
+        }
+    } catch { /* older Antigravity without this RPC */ }
+    return weekly;
 }
 
 // ─── Internals ──────────────────────────────────────────────────────
@@ -293,11 +316,11 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
     // ── AI Credits (Google One, etc.) ──
     const aiCredits: AICredit[] = (userStatus.userTier?.availableCredits || []).map(c => ({
         creditType: c.creditType,
-        creditAmount: Number(c.creditAmount),
+        creditAmount: Number(c.creditAmount ?? 0), // omitted by the API when 0
         minimumForUsage: Number(c.minimumCreditAmountForUsage),
     }));
 
-    return { credits, aiCredits, pools, models, timestamp: new Date() };
+    return { credits, aiCredits, weekly: {}, pools, models, timestamp: new Date() };
 }
 
 function formatTime(ms: number): string {

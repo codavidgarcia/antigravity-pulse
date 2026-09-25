@@ -54,6 +54,14 @@
                 "title": "Antigravity Pulse: Cycle Display Mode (Full / Compact)"
             },
             {
+                "command": "antigravityPulse.cycleBarStyle",
+                "title": "Antigravity Pulse: Cycle Bar Style (Segment / Smooth)"
+            },
+            {
+                "command": "antigravityPulse.toggleShowModels",
+                "title": "Antigravity Pulse: Toggle Per-Model List in Tooltip"
+            },
+            {
                 "command": "antigravityPulse.toggleShowAICredits",
                 "title": "Antigravity Pulse: Toggle AI Credits in Status Bar"
             }
@@ -99,6 +107,29 @@
                         "Abbreviated pool names and simplified reset times"
                     ],
                     "description": "Status bar display density: full (default) or compact for narrow windows"
+                },
+                "antigravityPulse.showWeekly": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show the weekly limit remaining next to each pool in the status bar (always shown in the tooltip)"
+                },
+                "antigravityPulse.barStyle": {
+                    "type": "string",
+                    "default": "segment",
+                    "enum": [
+                        "segment",
+                        "smooth"
+                    ],
+                    "enumDescriptions": [
+                        "10 segments: ▰▰▰▰▰▱▱▱▱▱",
+                        "Finer resolution: ████▉░░░░░"
+                    ],
+                    "description": "Progress bar style in the tooltip"
+                },
+                "antigravityPulse.showModels": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "List every model under each pool in the tooltip (models in a pool share the same quota, so this is off by default)"
                 },
                 "antigravityPulse.showAICredits": {
                     "type": "boolean",

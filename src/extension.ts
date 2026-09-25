@@ -9,7 +9,7 @@
 
 import * as vscode from 'vscode';
 import { findAntigravityProcess, ProcessInfo } from './process-finder';
-import { fetchQuota, QuotaSnapshot, AICredit } from './quota-fetcher';
+import { fetchQuota, QuotaSnapshot, AICredit, QuotaPool, WeeklyLimit } from './quota-fetcher';
 
 let statusBarItem: vscode.StatusBarItem;
 let pollingTimer: ReturnType<typeof setInterval> | undefined;
@@ -61,6 +61,17 @@ export async function activate(ctx: vscode.ExtensionContext) {
             const current = cfg.get<string>('displayMode', 'full');
             const next = current === 'full' ? 'compact' : 'full';
             await cfg.update('displayMode', next, vscode.ConfigurationTarget.Global);
+            if (lastSnapshot) { updateStatusBar(lastSnapshot); }
+        }),
+        vscode.commands.registerCommand('antigravityPulse.cycleBarStyle', async () => {
+            const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+            const next = cfg.get<string>('barStyle', 'segment') === 'segment' ? 'smooth' : 'segment';
+            await cfg.update('barStyle', next, vscode.ConfigurationTarget.Global);
+            if (lastSnapshot) { updateStatusBar(lastSnapshot); }
+        }),
+        vscode.commands.registerCommand('antigravityPulse.toggleShowModels', async () => {
+            const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+            await cfg.update('showModels', !cfg.get<boolean>('showModels', false), vscode.ConfigurationTarget.Global);
             if (lastSnapshot) { updateStatusBar(lastSnapshot); }
         }),
         vscode.commands.registerCommand('antigravityPulse.toggleShowAICredits', async () => {
@@ -209,6 +220,11 @@ function healthDot(pct: number): string {
     return '🔴';
 }
 
+/** Weekly limit of the model group a pool belongs to (Gemini pools ↔ "gemini", Claude·GPT ↔ "3p") */
+function weeklyFor(pool: QuotaPool, snap: QuotaSnapshot): WeeklyLimit | undefined {
+    return snap.weekly[pool.id.startsWith('gemini') ? 'gemini' : pool.id === 'claude_gpt' ? '3p' : ''];
+}
+
 function formatAICredits(credits: AICredit[]): string {
     if (credits.length === 0) { return ''; }
     const c = credits[0]; // Primary credit pool
@@ -223,6 +239,7 @@ function updateStatusBar(snap: QuotaSnapshot) {
         const cfg = vscode.workspace.getConfiguration('antigravityPulse');
         const showReset = cfg.get<boolean>('showResetTime', false);
         const showAICredits = cfg.get<boolean>('showAICredits', true);
+        const showWeekly = cfg.get<boolean>('showWeekly', true);
         const mode = cfg.get<string>('displayMode', 'full');
         const isCompact = mode === 'compact';
 
@@ -240,7 +257,9 @@ function updateStatusBar(snap: QuotaSnapshot) {
                 ? compactPoolLabel(pool.id, allPoolIds)
                 : (POOL_SHORT[pool.id] || pool.displayName);
             const pct = Math.round(pool.remainingPct);
+            const weekly = showWeekly ? weeklyFor(pool, snap) : undefined;
             let part = `${healthDot(pool.remainingPct)} ${name} ${pct}%`;
+            if (weekly) { part += `${isCompact ? ' W' : ' · W '}${Math.round(weekly.remainingPct)}%`; }
             if (showReset && pool.timeUntilReset) {
                 const time = isCompact ? compactTime(pool.timeUntilReset) : pool.timeUntilReset;
                 part += ` [${time}]`;
@@ -273,12 +292,26 @@ function clockOptions(): Intl.DateTimeFormatOptions {
     return opts;
 }
 
+function resetLabel(t: Date): string {
+    const opts = clockOptions();
+    return t.getTime() - Date.now() > 86_400_000
+        ? t.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + t.toLocaleTimeString([], opts)
+        : t.toLocaleTimeString([], opts);
+}
+
+/** One tooltip line: "🟢 `5h    ` ▰▰▰▱▱ **51%** ⟳ 3h 1m · 13:42" */
+function limitLine(label: string, l: { remainingPct: number; resetTime: Date; timeUntilReset: string }): string {
+    return `${healthDot(l.remainingPct)} \`${label.padEnd(6, '\u00A0')}\` ${visualBar(l.remainingPct)} **${l.remainingPct.toFixed(0)}%** ⟳ ${l.timeUntilReset} · ${resetLabel(l.resetTime)}\n\n`;
+}
+
 function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
     const md = new vscode.MarkdownString('', true);
     md.isTrusted = true;
     md.supportHtml = true;
 
     md.appendMarkdown('### Antigravity Pulse\n\n');
+    // Models in a pool share one quota, so listing them is optional
+    const showModels = vscode.workspace.getConfiguration('antigravityPulse').get<boolean>('showModels', false);
 
     // ── AI Credits section ──
     if (snap.aiCredits.length > 0) {
@@ -292,21 +325,14 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
     // ── Per-pool sections ──
     for (let i = 0; i < snap.pools.length; i++) {
         const pool = snap.pools[i];
-        const pct = pool.remainingPct;
-        const emoji = pct > 50 ? '🟢' : pct > 20 ? '🟡' : '🔴';
-        const bar = visualBar(pct);
 
-        const msUntilReset = pool.resetTime.getTime() - Date.now();
-        const timeOpts = clockOptions();
-        const resetLocal = msUntilReset > 86_400_000
-            ? pool.resetTime.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
-            pool.resetTime.toLocaleTimeString([], timeOpts)
-            : pool.resetTime.toLocaleTimeString([], timeOpts);
-        md.appendMarkdown(`**${emoji} ${pool.displayName}** — ${pct.toFixed(0)}%\n\n`);
-        md.appendMarkdown(`${bar} resets in **${pool.timeUntilReset}** _(${resetLocal})_\n\n`);
+        md.appendMarkdown(`**${pool.displayName}**\n\n`);
+        md.appendMarkdown(limitLine('5h', pool));
+        const weekly = weeklyFor(pool, snap);
+        if (weekly) { md.appendMarkdown(limitLine('Weekly', weekly)); }
 
         // Individual models within the pool
-        if (pool.models.length > 1) {
+        if (showModels && pool.models.length > 1) {
             for (const m of pool.models) {
                 const mEmoji = m.isExhausted ? '🔴' : m.remainingPct < 20 ? '🟡' : '⚪';
                 md.appendMarkdown(`&nbsp;&nbsp;&nbsp;${mEmoji} ${m.label} — ${m.remainingPct.toFixed(0)}%\n\n`);
@@ -321,16 +347,22 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
 
     // Footer
     md.appendMarkdown('\n---\n\n');
-    md.appendMarkdown('_Click for options_');
+    md.appendMarkdown(`_Updated ${snap.timestamp.toLocaleTimeString([], clockOptions())} · Click for options_`);
 
     return md;
 }
 
 function visualBar(pct: number): string {
-    const total = 15;
+    const total = 10;
+    if (vscode.workspace.getConfiguration('antigravityPulse').get<string>('barStyle', 'segment') === 'smooth') {
+        // Eighth-block resolution: 49% → ████▉░░░░░
+        const eighths = Math.round((pct / 100) * total * 8);
+        const full = Math.floor(eighths / 8);
+        const partial = eighths % 8 ? '▏▎▍▌▋▊▉'[(eighths % 8) - 1] : '';
+        return '█'.repeat(full) + partial + '░'.repeat(total - full - partial.length);
+    }
     const filled = Math.round((pct / 100) * total);
-    const empty = total - filled;
-    return '█'.repeat(filled) + '░'.repeat(empty);
+    return '▰'.repeat(filled) + '▱'.repeat(total - filled);
 }
 
 // ─── Quick menu ─────────────────────────────────────────────────────
@@ -341,6 +373,8 @@ async function showQuickMenu() {
     const displayMode = cfg.get<string>('displayMode', 'full');
     const showResetTime = cfg.get<boolean>('showResetTime', false);
     const showAICredits = cfg.get<boolean>('showAICredits', true);
+    const showModels = cfg.get<boolean>('showModels', false);
+    const barStyle = cfg.get<string>('barStyle', 'segment');
     const smartPolling = cfg.get<boolean>('smartPolling', true);
 
     const items: (vscode.QuickPickItem & { action?: string })[] = [
@@ -356,6 +390,16 @@ async function showQuickMenu() {
             label: `$(screen-full) Display: ${displayMode}`,
             description: displayMode === 'full' ? '→ compact' : '→ full',
             action: 'displayMode',
+        },
+        {
+            label: `$(graph) Bar style: ${barStyle}`,
+            description: barStyle === 'segment' ? '→ smooth' : '→ segment',
+            action: 'barStyle',
+        },
+        {
+            label: `$(list-tree) Tooltip: ${showModels ? 'limits + each model' : 'limits only'}`,
+            description: showModels ? '→ limits only (5h & weekly)' : '→ also list each model',
+            action: 'showModels',
         },
         {
             label: `$(sparkle) AI Credits: ${showAICredits ? 'on' : 'off'}`,
@@ -396,6 +440,10 @@ async function showQuickMenu() {
             return vscode.commands.executeCommand('antigravityPulse.refresh');
         case 'displayMode':
             return vscode.commands.executeCommand('antigravityPulse.cycleDisplayMode');
+        case 'barStyle':
+            return vscode.commands.executeCommand('antigravityPulse.cycleBarStyle');
+        case 'showModels':
+            return vscode.commands.executeCommand('antigravityPulse.toggleShowModels');
         case 'aiCredits':
             return vscode.commands.executeCommand('antigravityPulse.toggleShowAICredits');
         case 'clockFormat':
