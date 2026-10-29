@@ -138,6 +138,9 @@ function derivePoolName(models: ModelQuota[], totalPoolCount: number): { id: str
     if (hasPro) { parts.push('Gem Pro'); }
     if (hasFlash) { parts.push('Gem Flash'); }
     if (hasClaudeOrGpt) { parts.push('Claude'); }
+    if (parts.length === 0) {
+        return { id: 'other', displayName: 'Other' };
+    }
     return { id: 'mixed', displayName: parts.join(' & ') };
 }
 
@@ -293,8 +296,8 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
     // ── AI Credits (Google One, etc.) ──
     const aiCredits: AICredit[] = (userStatus.userTier?.availableCredits || []).map(c => ({
         creditType: c.creditType,
-        creditAmount: Number(c.creditAmount),
-        minimumForUsage: Number(c.minimumCreditAmountForUsage),
+        creditAmount: Number(c.creditAmount ?? 0),
+        minimumForUsage: Number(c.minimumCreditAmountForUsage ?? 0),
     }));
 
     return { credits, aiCredits, pools, models, timestamp: new Date() };
