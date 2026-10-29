@@ -1,5 +1,5 @@
 /**
- * Process Finder – Detects Antigravity's language_server process,
+ * Process Finder – Detects Antigravity's server process (agy --hub or legacy language_server),
  * extracts the CSRF token and discovers the API port.
  */
 
@@ -19,19 +19,33 @@ export interface ProcessInfo {
 interface ParsedProcess {
     pid: number;
     extensionPort: number;
+    hubPort: number;
     csrfToken: string;
 }
 
 /**
- * Finds the running Antigravity language_server process, extracts
+ * Finds the running Antigravity language_server or agy --hub process, extracts
  * connection parameters, and discovers the correct API port.
  */
-export async function findAntigravityProcess(workspacePath?: string): Promise<ProcessInfo | null> {
-    const processName = getProcessName();
+export async function findAntigravityProcess(
+    workspacePath?: string,
+    extensionHint?: Partial<ProcessInfo>
+): Promise<ProcessInfo | null> {
+    if (extensionHint?.port && extensionHint?.csrfToken) {
+        if (await testPort(extensionHint.port, extensionHint.csrfToken)) {
+            return { port: extensionHint.port, csrfToken: extensionHint.csrfToken };
+        }
+    }
+
+    const processNames = getProcessNames();
 
     try {
-        const parsed = await findProcess(processName, workspacePath);
+        const parsed = await findProcess(processNames, workspacePath);
         if (!parsed) { return null; }
+
+        if (parsed.hubPort > 0 && await testPort(parsed.hubPort, parsed.csrfToken)) {
+            return { port: parsed.hubPort, csrfToken: parsed.csrfToken };
+        }
 
         const ports = await getListeningPorts(parsed.pid);
         if (ports.length === 0) { return null; }
@@ -47,22 +61,24 @@ export async function findAntigravityProcess(workspacePath?: string): Promise<Pr
 
 // ─── Internals ──────────────────────────────────────────────────────
 
-function getProcessName(): string {
+function getProcessNames(): string[] {
     if (process.platform === 'win32') {
-        return 'language_server_windows_x64.exe';
+        return ['agy.exe', 'language_server_windows_x64.exe'];
     }
     if (process.platform === 'darwin') {
-        return `language_server_macos${process.arch === 'arm64' ? '_arm' : ''}`;
+        return ['agy', `language_server_macos${process.arch === 'arm64' ? '_arm' : ''}`];
     }
-    return `language_server_linux${process.arch === 'arm64' ? '_arm' : '_x64'}`;
+    return ['agy', `language_server_linux${process.arch === 'arm64' ? '_arm' : '_x64'}`];
 }
 
-async function findProcess(name: string, workspacePath?: string): Promise<ParsedProcess | null> {
+async function findProcess(names: string[], workspacePath?: string): Promise<ParsedProcess | null> {
+    const filter = names.map(n => `name='${n}'`).join(' OR ');
+    const pattern = names.join('|');
     const cmd = process.platform === 'win32'
-        ? `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='${name}'\\" | Select-Object ProcessId,CommandLine | ConvertTo-Json"`
+        ? `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"${filter}\\" | Select-Object ProcessId,CommandLine | ConvertTo-Json"`
         : process.platform === 'darwin'
-            ? `pgrep -fl ${name}`
-            : `pgrep -af ${name}`;
+            ? `pgrep -fl "${pattern}"`
+            : `pgrep -af "${pattern}"`;
 
     const { stdout } = await execAsync(cmd);
     return parseProcessOutput(stdout, workspacePath);
@@ -70,36 +86,52 @@ async function findProcess(name: string, workspacePath?: string): Promise<Parsed
 
 function parseProcessOutput(stdout: string, workspacePath?: string): ParsedProcess | null {
     if (process.platform === 'win32') {
-        return parseWindows(stdout);
+        return parseWindows(stdout, workspacePath);
     }
     return parseUnix(stdout, workspacePath);
 }
 
-function parseWindows(stdout: string): ParsedProcess | null {
+function parseWindows(stdout: string, workspacePath?: string): ParsedProcess | null {
     try {
-        let data = JSON.parse(stdout.trim());
-        if (Array.isArray(data)) {
-            // Filter to Antigravity processes only
-            data = data.filter((d: any) => {
-                const cmd = (d.CommandLine || '').toLowerCase();
-                return /--app_data_dir\s+antigravity\b/i.test(d.CommandLine || '')
-                    || cmd.includes('\\antigravity\\')
-                    || cmd.includes('/antigravity/');
-            });
-            if (data.length === 0) { return null; }
-            data = data[0];
-        }
+        const trimmed = stdout.trim();
+        if (!trimmed) { return null; }
+
+        const raw = JSON.parse(trimmed);
+        const list = Array.isArray(raw) ? raw : [raw];
+
+        // Filter to Antigravity processes only (agy --hub or legacy language_server)
+        const candidates = list.filter((d: any) => {
+            const cmdLine = d?.CommandLine || '';
+            const cmd = cmdLine.toLowerCase();
+            const hasToken = /--csrf_token[=\s]+[a-f0-9\-]+/i.test(cmdLine);
+            const isAntigravity = /--app_data_dir[=\s]+antigravity\b/i.test(cmdLine)
+                || /--hub\b/i.test(cmdLine)
+                || cmd.includes('\\antigravity\\')
+                || cmd.includes('/antigravity/');
+            return Boolean(d?.ProcessId && hasToken && isAntigravity);
+        });
+        if (candidates.length === 0) { return null; }
+
+        const wsNorm = workspacePath ? workspacePath.toLowerCase() : null;
+        const wsId = workspacePath ? toWorkspaceId(workspacePath).toLowerCase() : null;
+        const data = (wsNorm && candidates.find((d: any) => {
+            const cmd = (d.CommandLine || '').toLowerCase();
+            return cmd.includes(wsNorm) || (wsId ? cmd.includes(wsId) : false);
+        })) || candidates[0];
+
         const cmdLine = data.CommandLine || '';
         const pid = data.ProcessId;
         if (!pid) { return null; }
 
         const port = cmdLine.match(/--extension_server_port[=\s]+(\d+)/);
+        const hubPort = cmdLine.match(/--hub-port[=\s]+(\d+)/);
         const token = cmdLine.match(/--csrf_token[=\s]+([a-f0-9\-]+)/i);
         if (!token?.[1]) { return null; }
 
         return {
             pid,
             extensionPort: port ? parseInt(port[1], 10) : 0,
+            hubPort: hubPort ? parseInt(hubPort[1], 10) : 0,
             csrfToken: token[1],
         };
     } catch {
@@ -118,10 +150,15 @@ function toWorkspaceId(folderPath: string): string {
 
 function parseUnix(stdout: string, workspacePath?: string): ParsedProcess | null {
     const wsId = workspacePath ? toWorkspaceId(workspacePath) : null;
-    const lines = stdout.split('\n').filter(l => l.includes('--extension_server_port'));
+    const lines = stdout.split('\n').filter(l =>
+        (l.includes('--extension_server_port') || l.includes('--hub-port') || l.includes('--hub'))
+        && l.includes('--csrf_token')
+    );
 
     // Prefer the line matching our workspace, fall back to first match
-    const target = (wsId && lines.find(l => l.includes(wsId))) || lines[0];
+    const target = (workspacePath && lines.find(l =>
+        l.includes(workspacePath) || (wsId ? l.includes(wsId) : false)
+    )) || lines[0];
     if (!target) { return null; }
 
     const parts = target.trim().split(/\s+/);
@@ -129,12 +166,15 @@ function parseUnix(stdout: string, workspacePath?: string): ParsedProcess | null
     const cmd = target.substring(parts[0].length).trim();
 
     const port = cmd.match(/--extension_server_port[=\s]+(\d+)/);
+    const hubPort = cmd.match(/--hub-port[=\s]+(\d+)/);
     const token = cmd.match(/--csrf_token[=\s]+([a-zA-Z0-9\-]+)/);
+    if (!token?.[1]) { return null; }
 
     return {
         pid,
         extensionPort: port ? parseInt(port[1], 10) : 0,
-        csrfToken: token ? token[1] : '',
+        hubPort: hubPort ? parseInt(hubPort[1], 10) : 0,
+        csrfToken: token[1],
     };
 }
 
