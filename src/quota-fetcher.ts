@@ -1,15 +1,7 @@
 /**
- * Quota Fetcher – Calls the Antigravity GetUserStatus API,
- * parses per-model quotas, and groups them by quota pool.
- *
- * Pool detection is DYNAMIC: models are grouped by their actual
- * (remainingFraction, resetTime) pair from the API. Models that
- * share the same fraction AND resetTime are in the same pool.
- *
- * Each pool gets a display name based on a label-hint classification
- * (Gemini, Claude/GPT, etc.) but the grouping is always data-driven.
- * If Antigravity ever splits Flash into its own bucket, this code
- * will detect and display it automatically.
+ * Quota Fetcher – Calls Antigravity's local Language Server API,
+ * retrieves both the 5-hour daily rolling limit and weekly quota,
+ * and groups them by quota pool (Gemini & Claude/GPT).
  */
 
 import * as http from 'http';
@@ -34,12 +26,23 @@ export interface ModelQuota {
 }
 
 export interface QuotaPool {
-    id: string;               // dynamic key, e.g. "gemini" or "gemini_flash"
-    displayName: string;      // human-friendly name
-    remainingPct: number;     // 0–100
+    id: string;               // e.g. "gemini", "claude_gpt"
+    displayName: string;      // e.g. "Gemini", "Claude · GPT"
+    remainingPct: number;     // Active 5-hour percentage (fallback to weekly)
     isExhausted: boolean;
     resetTime: Date;
     timeUntilReset: string;
+    
+    // 5-Hour rolling limit
+    fiveHourPct?: number;
+    fiveHourResetTime?: Date;
+    fiveHourTimeUntilReset?: string;
+
+    // Weekly limit
+    weeklyPct?: number;
+    weeklyResetTime?: Date;
+    weeklyTimeUntilReset?: string;
+
     models: ModelQuota[];
 }
 
@@ -52,27 +55,49 @@ export interface AICredit {
 export interface QuotaSnapshot {
     credits?: PromptCredits;
     aiCredits: AICredit[];    // Google One AI credits etc.
-    pools: QuotaPool[];       // auto-detected pools
+    pools: QuotaPool[];       // Gemini and Claude/GPT pools
     models: ModelQuota[];     // flat list, all models
     timestamp: Date;
 }
 
-// ─── Server response shape ──────────────────────────────────────────
+// ─── Server response shapes ─────────────────────────────────────────
+
+interface QuotaBucket {
+    bucketId: string;
+    displayName: string;
+    description?: string;
+    window: string;           // '5h', 'weekly', etc.
+    remainingFraction: number;
+    resetTime: string;
+}
+
+interface QuotaGroup {
+    displayName: string;
+    description?: string;
+    buckets?: QuotaBucket[];
+}
+
+interface QuotaSummaryResponse {
+    response?: {
+        groups?: QuotaGroup[];
+        description?: string;
+    };
+}
 
 interface ServerResponse {
-    userStatus: {
+    userStatus?: {
         planStatus?: {
-            planInfo: {
-                monthlyPromptCredits: number;
+            planInfo?: {
+                monthlyPromptCredits?: number;
             };
-            availablePromptCredits: number;
+            availablePromptCredits?: number;
         };
         cascadeModelConfigData?: {
-            clientModelConfigs: any[];
+            clientModelConfigs?: any[];
         };
         userTier?: {
-            id: string;
-            name: string;
+            id?: string;
+            name?: string;
             availableCredits?: {
                 creditType: string;
                 creditAmount: string;
@@ -82,7 +107,7 @@ interface ServerResponse {
     };
 }
 
-// ─── Family classification (label hints only, NOT pool assignment) ──
+// ─── Family classification (label hints only) ───────────────────────
 
 function classifyFamily(label: string, modelId: string): string {
     const lower = (label + ' ' + modelId).toLowerCase();
@@ -95,80 +120,44 @@ function classifyFamily(label: string, modelId: string): string {
     return 'other';
 }
 
-// ─── Pool naming from members ───────────────────────────────────────
-
-/**
- * Given a pool's models, derive a short display name.
- * "All Models" is reserved for when there is genuinely a single pool
- * containing every model. When pools split (different quotas/reset times),
- * each pool gets a specific, descriptive name.
- */
-function derivePoolName(models: ModelQuota[], totalPoolCount: number): { id: string; displayName: string } {
-    // Single pool → it truly IS all models
-    if (totalPoolCount === 1) {
-        return { id: 'all', displayName: 'All Models' };
-    }
-
-    const families = new Set(models.map(m => m.family));
-    const hasPro = families.has('gemini');
-    const hasFlash = families.has('gemini_flash');
-    const hasClaude = families.has('claude');
-    const hasGpt = families.has('gpt');
-    const hasClaudeOrGpt = hasClaude || hasGpt;
-
-    // Pure Gemini pools
-    if (hasPro && hasFlash && !hasClaudeOrGpt) {
-        return { id: 'gemini', displayName: 'Gemini' };
-    }
-    if (hasPro && !hasFlash && !hasClaudeOrGpt) {
-        return { id: 'gemini_pro', displayName: 'Gemini Pro' };
-    }
-    if (hasFlash && !hasPro && !hasClaudeOrGpt) {
-        return { id: 'gemini_flash', displayName: 'Gemini Flash' };
-    }
-
-    // Claude/GPT pool — display both in tooltip, status bar shortens via POOL_SHORT
-    if (hasClaudeOrGpt && !hasPro && !hasFlash) {
-        return { id: 'claude_gpt', displayName: 'Claude · GPT' };
-    }
-
-    // Mixed pool that isn't everything (e.g. Flash + Claude when Pro is separate)
-    // Compose a descriptive name from the families present
-    const parts: string[] = [];
-    if (hasPro) { parts.push('Gem Pro'); }
-    if (hasFlash) { parts.push('Gem Flash'); }
-    if (hasClaudeOrGpt) { parts.push('Claude'); }
-    return { id: 'mixed', displayName: parts.join(' & ') };
-}
-
 // ─── Fetcher ────────────────────────────────────────────────────────
 
 export async function fetchQuota(port: number, csrfToken: string): Promise<QuotaSnapshot> {
-    const data = await postWithFallback<ServerResponse>(port, csrfToken,
-        '/exa.language_server_pb.LanguageServerService/GetUserStatus',
-        {
-            metadata: {
-                ideName: 'antigravity',
-                extensionName: 'antigravity',
-                locale: 'en',
-            },
-        }
-    );
+    // Query both endpoints concurrently
+    const [summaryResult, statusResult] = await Promise.allSettled([
+        postWithFallback<QuotaSummaryResponse>(port, csrfToken,
+            '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary',
+            { forceRefresh: false }
+        ),
+        postWithFallback<ServerResponse>(port, csrfToken,
+            '/exa.language_server_pb.LanguageServerService/GetUserStatus',
+            {
+                metadata: {
+                    ideName: 'antigravity',
+                    extensionName: 'antigravity',
+                    locale: 'en',
+                },
+            }
+        ),
+    ]);
 
-    return parseResponse(data);
+    const summaryData = summaryResult.status === 'fulfilled' ? summaryResult.value : undefined;
+    const statusData = statusResult.status === 'fulfilled' ? statusResult.value : undefined;
+
+    if (!summaryData && !statusData) {
+        throw new Error('Failed to fetch quota from Antigravity API');
+    }
+
+    return parseCombinedResponses(summaryData, statusData);
 }
 
 // ─── Internals ──────────────────────────────────────────────────────
 
-/**
- * Try HTTP first; if it fails, fall back to HTTPS on the same port.
- * The language server may expose either protocol depending on version.
- */
 async function postWithFallback<T>(port: number, csrfToken: string, path: string, body: object): Promise<T> {
     try {
-        return await post<T>(port, csrfToken, path, body, 'http');
-    } catch {
         return await post<T>(port, csrfToken, path, body, 'https');
+    } catch {
+        return await post<T>(port, csrfToken, path, body, 'http');
     }
 }
 
@@ -211,10 +200,10 @@ function post<T>(port: number, csrfToken: string, path: string, body: object, pr
     });
 }
 
-function parseResponse(data: ServerResponse): QuotaSnapshot {
-    const userStatus = data.userStatus;
-    const planInfo = userStatus.planStatus?.planInfo;
-    const availableRaw = userStatus.planStatus?.availablePromptCredits;
+function parseCombinedResponses(summary?: QuotaSummaryResponse, status?: ServerResponse): QuotaSnapshot {
+    const userStatus = status?.userStatus;
+    const planInfo = userStatus?.planStatus?.planInfo;
+    const availableRaw = userStatus?.planStatus?.availablePromptCredits;
 
     // ── Prompt credits ──
     let credits: PromptCredits | undefined;
@@ -230,8 +219,15 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
         }
     }
 
-    // ── Per-model quotas ──
-    const rawModels: any[] = userStatus.cascadeModelConfigData?.clientModelConfigs || [];
+    // ── AI Credits (Google One, etc.) ──
+    const aiCredits: AICredit[] = (userStatus?.userTier?.availableCredits || []).map(c => ({
+        creditType: c.creditType,
+        creditAmount: Number(c.creditAmount),
+        minimumForUsage: Number(c.minimumCreditAmountForUsage),
+    }));
+
+    // ── Individual Models ──
+    const rawModels: any[] = userStatus?.cascadeModelConfigData?.clientModelConfigs || [];
     const models: ModelQuota[] = rawModels
         .filter((m: any) => m.quotaInfo)
         .map((m: any) => {
@@ -252,50 +248,101 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
             };
         });
 
-    // ── Auto-detect pools by (fraction, resetTime) ──
-    // Models with identical remainingFraction AND resetTime are in the same pool.
-    const bucketMap = new Map<string, ModelQuota[]>();
-    for (const m of models) {
-        const key = `${m.remainingPct}|${m.resetTime.toISOString()}`;
-        const list = bucketMap.get(key) || [];
-        list.push(m);
-        bucketMap.set(key, list);
-    }
-
-    // Convert detected buckets into QuotaPool objects
+    // ── Process Quota Pools from QuotaSummary ──
     const pools: QuotaPool[] = [];
-    // Sort pools: gemini-family first, then claude/gpt, then other
-    const familyOrder = ['gemini', 'gemini_flash', 'claude', 'gpt', 'other'];
+    const groups = summary?.response?.groups || [];
 
-    const sortedBuckets = [...bucketMap.values()].sort((a, b) => {
-        const aIdx = Math.min(...a.map(m => familyOrder.indexOf(m.family)));
-        const bIdx = Math.min(...b.map(m => familyOrder.indexOf(m.family)));
-        return aIdx - bIdx;
-    });
+    if (groups.length > 0) {
+        for (const group of groups) {
+            const nameLower = (group.displayName || '').toLowerCase();
+            const isGemini = nameLower.includes('gemini');
+            const isClaude = nameLower.includes('claude') || nameLower.includes('gpt') || nameLower.includes('3p');
 
-    for (const members of sortedBuckets) {
-        const { id, displayName } = derivePoolName(members, sortedBuckets.length);
-        const rep = members.reduce((a, b) =>
-            a.remainingPct < b.remainingPct ? a : b
-        );
+            const id = isGemini ? 'gemini' : isClaude ? 'claude_gpt' : nameLower.replace(/[^a-z0-9]+/g, '_');
+            const displayName = isGemini ? 'Gemini' : isClaude ? 'Claude · GPT' : group.displayName;
 
-        pools.push({
-            id,
-            displayName,
-            remainingPct: rep.remainingPct,
-            isExhausted: rep.isExhausted,
-            resetTime: rep.resetTime,
-            timeUntilReset: rep.timeUntilReset,
-            models: members,
-        });
+            const buckets = group.buckets || [];
+            const weeklyBucket = buckets.find(b => b.window === 'weekly' || b.bucketId.includes('weekly') || (b.displayName || '').toLowerCase().includes('weekly'));
+            const fiveHourBucket = buckets.find(b => b.window === '5h' || b.bucketId.includes('5h') || (b.displayName || '').toLowerCase().includes('five hour') || (b.displayName || '').toLowerCase().includes('5-hour'));
+
+            let weeklyPct: number | undefined;
+            let weeklyResetTime: Date | undefined;
+            let weeklyTimeUntilReset: string | undefined;
+
+            if (weeklyBucket) {
+                weeklyPct = Math.round((weeklyBucket.remainingFraction ?? 0) * 100);
+                weeklyResetTime = new Date(weeklyBucket.resetTime);
+                weeklyTimeUntilReset = formatTime(weeklyResetTime.getTime() - Date.now());
+            }
+
+            let fiveHourPct: number | undefined;
+            let fiveHourResetTime: Date | undefined;
+            let fiveHourTimeUntilReset: string | undefined;
+
+            if (fiveHourBucket) {
+                fiveHourPct = Math.round((fiveHourBucket.remainingFraction ?? 0) * 100);
+                fiveHourResetTime = new Date(fiveHourBucket.resetTime);
+                fiveHourTimeUntilReset = formatTime(fiveHourResetTime.getTime() - Date.now());
+            }
+
+            // PRIMARY DISPLAY: The daily 5-hour rolling limit (falls back to weekly if 5-hour is missing)
+            const remainingPct = fiveHourPct !== undefined ? fiveHourPct : (weeklyPct ?? 100);
+            const resetTime = fiveHourResetTime || weeklyResetTime || new Date();
+            const timeUntilReset = fiveHourTimeUntilReset || weeklyTimeUntilReset || 'Now';
+            const isExhausted = remainingPct === 0;
+
+            // Associate relevant models to this pool
+            const poolModels = models.filter(m => {
+                if (isGemini) { return m.family.startsWith('gemini'); }
+                if (isClaude) { return m.family === 'claude' || m.family === 'gpt'; }
+                return true;
+            });
+
+            pools.push({
+                id,
+                displayName,
+                remainingPct,
+                isExhausted,
+                resetTime,
+                timeUntilReset,
+                fiveHourPct,
+                fiveHourResetTime,
+                fiveHourTimeUntilReset,
+                weeklyPct,
+                weeklyResetTime,
+                weeklyTimeUntilReset,
+                models: poolModels,
+            });
+        }
+    } else if (models.length > 0) {
+        // Fallback: auto-detect pools from GetUserStatus model grouping if summary wasn't available
+        const bucketMap = new Map<string, ModelQuota[]>();
+        for (const m of models) {
+            const key = `${m.remainingPct}|${m.resetTime.toISOString()}`;
+            const list = bucketMap.get(key) || [];
+            list.push(m);
+            bucketMap.set(key, list);
+        }
+
+        const sortedBuckets = [...bucketMap.values()];
+        for (const members of sortedBuckets) {
+            const rep = members.reduce((a, b) => a.remainingPct < b.remainingPct ? a : b);
+            const hasClaude = members.some(m => m.family === 'claude' || m.family === 'gpt');
+            const hasGemini = members.some(m => m.family.startsWith('gemini'));
+            const id = hasGemini ? 'gemini' : hasClaude ? 'claude_gpt' : 'other';
+            const displayName = hasGemini ? 'Gemini' : hasClaude ? 'Claude · GPT' : 'Other';
+
+            pools.push({
+                id,
+                displayName,
+                remainingPct: Math.round(rep.remainingPct),
+                isExhausted: rep.isExhausted,
+                resetTime: rep.resetTime,
+                timeUntilReset: rep.timeUntilReset,
+                models: members,
+            });
+        }
     }
-
-    // ── AI Credits (Google One, etc.) ──
-    const aiCredits: AICredit[] = (userStatus.userTier?.availableCredits || []).map(c => ({
-        creditType: c.creditType,
-        creditAmount: Number(c.creditAmount),
-        minimumForUsage: Number(c.minimumCreditAmountForUsage),
-    }));
 
     return { credits, aiCredits, pools, models, timestamp: new Date() };
 }
@@ -312,3 +359,4 @@ function formatTime(ms: number): string {
     }
     return `${h}h ${mins % 60}m`;
 }
+

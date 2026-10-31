@@ -293,7 +293,7 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
     for (let i = 0; i < snap.pools.length; i++) {
         const pool = snap.pools[i];
         const pct = pool.remainingPct;
-        const emoji = pct > 50 ? '🟢' : pct > 20 ? '🟡' : '🔴';
+        const emoji = healthDot(pct);
         const bar = visualBar(pct);
 
         const msUntilReset = pool.resetTime.getTime() - Date.now();
@@ -302,14 +302,31 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
             ? pool.resetTime.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
             pool.resetTime.toLocaleTimeString([], timeOpts)
             : pool.resetTime.toLocaleTimeString([], timeOpts);
-        md.appendMarkdown(`**${emoji} ${pool.displayName}** — ${pct.toFixed(0)}%\n\n`);
+
+        // Header with 5-Hour rolling limit (or general quota)
+        md.appendMarkdown(`**${emoji} ${pool.displayName}** — **${pct.toFixed(0)}%** _(5-Hour Limit)_\n\n`);
         md.appendMarkdown(`${bar} resets in **${pool.timeUntilReset}** _(${resetLocal})_\n\n`);
 
+        // Weekly Limit section shown on hover
+        if (pool.weeklyPct !== undefined && pool.weeklyResetTime) {
+            const weeklyEmoji = healthDot(pool.weeklyPct);
+            const weeklyBar = visualBar(pool.weeklyPct);
+            const weeklyMs = pool.weeklyResetTime.getTime() - Date.now();
+            const weeklyLocal = weeklyMs > 86_400_000
+                ? pool.weeklyResetTime.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
+                pool.weeklyResetTime.toLocaleTimeString([], timeOpts)
+                : pool.weeklyResetTime.toLocaleTimeString([], timeOpts);
+
+            md.appendMarkdown(`&nbsp;&nbsp;&nbsp;📅 **Weekly Limit:** ${weeklyEmoji} **${pool.weeklyPct.toFixed(0)}%**\n\n`);
+            md.appendMarkdown(`&nbsp;&nbsp;&nbsp;${weeklyBar} resets in **${pool.weeklyTimeUntilReset}** _(${weeklyLocal})_\n\n`);
+        }
+
         // Individual models within the pool
-        if (pool.models.length > 1) {
+        if (pool.models.length > 0) {
+            md.appendMarkdown(`&nbsp;&nbsp;&nbsp;**Included Models:**\n\n`);
             for (const m of pool.models) {
                 const mEmoji = m.isExhausted ? '🔴' : m.remainingPct < 20 ? '🟡' : '⚪';
-                md.appendMarkdown(`&nbsp;&nbsp;&nbsp;${mEmoji} ${m.label} — ${m.remainingPct.toFixed(0)}%\n\n`);
+                md.appendMarkdown(`&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${mEmoji} ${m.label}\n\n`);
             }
         }
 

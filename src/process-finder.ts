@@ -1,6 +1,9 @@
 /**
  * Process Finder – Detects Antigravity's language_server process,
  * extracts the CSRF token and discovers the API port.
+ *
+ * Supports both log-based discovery (fast & reliable on Windows/Mac/Linux)
+ * and active process inspection as a fallback.
  */
 
 import { exec } from 'child_process';
@@ -8,6 +11,9 @@ import { promisify } from 'util';
 import * as http from 'http';
 import * as https from 'https';
 import * as process from 'process';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 const execAsync = promisify(exec);
 
@@ -27,6 +33,16 @@ interface ParsedProcess {
  * connection parameters, and discovers the correct API port.
  */
 export async function findAntigravityProcess(workspacePath?: string): Promise<ProcessInfo | null> {
+    // 1. Try instant log-based discovery first (most reliable on Windows & Unix)
+    const logInfo = await findFromLogs();
+    if (logInfo) {
+        const workingPort = await findWorkingPort([logInfo.port], logInfo.csrfToken);
+        if (workingPort) {
+            return { port: workingPort, csrfToken: logInfo.csrfToken };
+        }
+    }
+
+    // 2. Fallback to process table scanning
     const processName = getProcessName();
 
     try {
@@ -34,6 +50,9 @@ export async function findAntigravityProcess(workspacePath?: string): Promise<Pr
         if (!parsed) { return null; }
 
         const ports = await getListeningPorts(parsed.pid);
+        if (ports.length === 0 && parsed.extensionPort > 0) {
+            ports.push(parsed.extensionPort);
+        }
         if (ports.length === 0) { return null; }
 
         const workingPort = await findWorkingPort(ports, parsed.csrfToken);
@@ -45,7 +64,95 @@ export async function findAntigravityProcess(workspacePath?: string): Promise<Pr
     }
 }
 
-// ─── Internals ──────────────────────────────────────────────────────
+// ─── Log-Based Discovery ─────────────────────────────────────────────
+
+function getCandidateLogDirs(): string[] {
+    const home = os.homedir();
+    const platform = process.platform;
+    const dirs: string[] = [];
+
+    if (platform === 'win32') {
+        const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+        dirs.push(path.join(appData, 'Antigravity IDE', 'logs'));
+        dirs.push(path.join(home, '.gemini', 'antigravity-ide', 'logs'));
+        const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+        dirs.push(path.join(localAppData, 'Programs', 'Antigravity IDE', 'logs'));
+    } else if (platform === 'darwin') {
+        dirs.push(path.join(home, 'Library', 'Application Support', 'Antigravity IDE', 'logs'));
+        dirs.push(path.join(home, '.gemini', 'antigravity-ide', 'logs'));
+    } else {
+        const configDir = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
+        dirs.push(path.join(configDir, 'Antigravity IDE', 'logs'));
+        dirs.push(path.join(home, '.gemini', 'antigravity-ide', 'logs'));
+    }
+
+    return dirs.filter(d => fs.existsSync(d));
+}
+
+async function findFromLogs(): Promise<ProcessInfo | null> {
+    const candidateDirs = getCandidateLogDirs();
+    if (candidateDirs.length === 0) {
+        return null;
+    }
+
+    let newestFile: string | null = null;
+    let newestMtime = 0;
+
+    for (const logsDir of candidateDirs) {
+        try {
+            const subdirs = fs.readdirSync(logsDir);
+            for (const d of subdirs) {
+                const candidate = path.join(logsDir, d, 'ls-main.log');
+                if (fs.existsSync(candidate)) {
+                    const stat = fs.statSync(candidate);
+                    if (stat.mtimeMs > newestMtime) {
+                        newestMtime = stat.mtimeMs;
+                        newestFile = candidate;
+                    }
+                }
+            }
+        } catch {
+            continue;
+        }
+    }
+
+    if (!newestFile) {
+        return null;
+    }
+
+    try {
+        let fd: number | null = null;
+        const maxBytes = 64 * 1024;
+        let content = '';
+        try {
+            fd = fs.openSync(newestFile, 'r');
+            const buffer = Buffer.alloc(maxBytes);
+            const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
+            content = buffer.toString('utf8', 0, bytesRead);
+        } finally {
+            if (fd !== null) {
+                try { fs.closeSync(fd); } catch { /* ignore */ }
+            }
+        }
+
+        const csrfMatch = content.match(/--csrf_token\s+([a-f0-9-]+)/i);
+        const portMatch = content.match(/LS started on port\s+(\d+)/i) ||
+                          content.match(/listening on random port at\s+(\d+)\s+for HTTPS/i);
+
+        if (csrfMatch && portMatch) {
+            return {
+                csrfToken: csrfMatch[1],
+                port: parseInt(portMatch[1], 10),
+            };
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
+}
+
+// ─── Process Scanner ─────────────────────────────────────────────────
 
 function getProcessName(): string {
     if (process.platform === 'win32') {
@@ -58,20 +165,20 @@ function getProcessName(): string {
 }
 
 async function findProcess(name: string, workspacePath?: string): Promise<ParsedProcess | null> {
-    const cmd = process.platform === 'win32'
-        ? `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='${name}'\\" | Select-Object ProcessId,CommandLine | ConvertTo-Json"`
-        : process.platform === 'darwin'
-            ? `pgrep -fl ${name}`
-            : `pgrep -af ${name}`;
-
-    const { stdout } = await execAsync(cmd);
-    return parseProcessOutput(stdout, workspacePath);
-}
-
-function parseProcessOutput(stdout: string, workspacePath?: string): ParsedProcess | null {
     if (process.platform === 'win32') {
+        // Safe base64 encoded command to avoid cmd.exe quote stripping
+        const psScript = `Get-CimInstance Win32_Process -Filter "name='${name}'" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`;
+        const b64 = Buffer.from(psScript, 'utf16le').toString('base64');
+        const cmd = `powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`;
+        const { stdout } = await execAsync(cmd);
         return parseWindows(stdout);
     }
+
+    const cmd = process.platform === 'darwin'
+        ? `pgrep -fl ${name}`
+        : `pgrep -af ${name}`;
+
+    const { stdout } = await execAsync(cmd);
     return parseUnix(stdout, workspacePath);
 }
 
@@ -80,28 +187,34 @@ function parseWindows(stdout: string): ParsedProcess | null {
         let data = JSON.parse(stdout.trim());
         if (Array.isArray(data)) {
             // Filter to Antigravity processes only
-            data = data.filter((d: any) => {
+            const filtered = data.filter((d: any) => {
                 const cmd = (d.CommandLine || '').toLowerCase();
-                return /--app_data_dir\s+antigravity\b/i.test(d.CommandLine || '')
-                    || cmd.includes('\\antigravity\\')
-                    || cmd.includes('/antigravity/');
+                return /--app_data_dir\s+antigravity/i.test(d.CommandLine || '')
+                    || cmd.includes('antigravity')
+                    || cmd.includes('language_server');
             });
-            if (data.length === 0) { return null; }
-            data = data[0];
+            if (filtered.length === 0) { return null; }
+            data = filtered;
+        } else {
+            data = [data];
         }
-        const cmdLine = data.CommandLine || '';
-        const pid = data.ProcessId;
-        if (!pid) { return null; }
 
-        const port = cmdLine.match(/--extension_server_port[=\s]+(\d+)/);
-        const token = cmdLine.match(/--csrf_token[=\s]+([a-f0-9\-]+)/i);
-        if (!token?.[1]) { return null; }
+        for (const item of data) {
+            const cmdLine = item.CommandLine || '';
+            const pid = item.ProcessId;
+            if (!pid) { continue; }
 
-        return {
-            pid,
-            extensionPort: port ? parseInt(port[1], 10) : 0,
-            csrfToken: token[1],
-        };
+            const port = cmdLine.match(/--extension_server_port[=\s]+(\d+)/);
+            const token = cmdLine.match(/--csrf_token[=\s]+([a-f0-9\-]+)/i);
+            if (!token?.[1]) { continue; }
+
+            return {
+                pid,
+                extensionPort: port ? parseInt(port[1], 10) : 0,
+                csrfToken: token[1],
+            };
+        }
+        return null;
     } catch {
         return null;
     }
@@ -110,7 +223,6 @@ function parseWindows(stdout: string): ParsedProcess | null {
 /**
  * Converts a workspace folder path to the workspace_id format
  * used by the language server's --workspace_id argument.
- * e.g. "/Users/me/My Project" → "file_Users_me_My_20Project"
  */
 function toWorkspaceId(folderPath: string): string {
     return 'file' + folderPath.replace(/ /g, '_20').replace(/\//g, '_');
@@ -140,11 +252,17 @@ function parseUnix(stdout: string, workspacePath?: string): ParsedProcess | null
 
 async function getListeningPorts(pid: number): Promise<number[]> {
     try {
+        if (process.platform === 'win32') {
+            const psScript = `Get-NetTCPConnection -OwningProcess ${pid} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort | ConvertTo-Json -Compress`;
+            const b64 = Buffer.from(psScript, 'utf16le').toString('base64');
+            const cmd = `powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`;
+            const { stdout } = await execAsync(cmd);
+            return parsePortOutput(stdout, pid);
+        }
+
         const cmd = process.platform === 'darwin'
             ? `lsof -nP -a -iTCP -sTCP:LISTEN -p ${pid}`
-            : process.platform === 'win32'
-                ? `powershell -NoProfile -Command "Get-NetTCPConnection -OwningProcess ${pid} -State Listen | Select-Object -ExpandProperty LocalPort | ConvertTo-Json"`
-                : `ss -tlnp 2>/dev/null | grep "pid=${pid}" || lsof -nP -a -iTCP -sTCP:LISTEN -p ${pid} 2>/dev/null`;
+            : `ss -tlnp 2>/dev/null | grep "pid=${pid}" || lsof -nP -a -iTCP -sTCP:LISTEN -p ${pid} 2>/dev/null`;
 
         const { stdout } = await execAsync(cmd);
         return parsePortOutput(stdout, pid);
@@ -158,7 +276,9 @@ function parsePortOutput(stdout: string, pid: number): number[] {
 
     if (process.platform === 'win32') {
         try {
-            const data = JSON.parse(stdout.trim());
+            const trimmed = stdout.trim();
+            if (!trimmed) { return []; }
+            const data = JSON.parse(trimmed);
             const arr = Array.isArray(data) ? data : [data];
             for (const p of arr) {
                 if (typeof p === 'number' && !ports.includes(p)) { ports.push(p); }
@@ -179,11 +299,9 @@ function parsePortOutput(stdout: string, pid: number): number[] {
     }
 
     // Linux – parse ss output
-    // Format: LISTEN  0  128  *:42100  *:*  users:(("language_server",pid=1234,fd=5))
     for (const line of stdout.split('\n')) {
         if (!line.includes(`pid=${pid}`)) { continue; }
         const cols = line.trim().split(/\s+/);
-        // ss columns: State Recv-Q Send-Q Local-Address:Port Peer-Address:Port Process
         const localAddr = cols[3];
         if (!localAddr) { continue; }
         const portMatch = localAddr.match(/:(\d+)$/);
@@ -205,12 +323,12 @@ async function findWorkingPort(ports: number[], csrfToken: string): Promise<numb
 }
 
 /**
- * Try HTTP first; if it fails, fall back to HTTPS on the same port.
+ * Try HTTPS first (as Antigravity uses HTTPS), then fall back to HTTP.
  */
 async function testPort(port: number, csrfToken: string): Promise<boolean> {
-    const ok = await testPortWithProtocol(port, csrfToken, 'http');
-    if (ok) { return true; }
-    return testPortWithProtocol(port, csrfToken, 'https');
+    const okHttps = await testPortWithProtocol(port, csrfToken, 'https');
+    if (okHttps) { return true; }
+    return testPortWithProtocol(port, csrfToken, 'http');
 }
 
 function testPortWithProtocol(port: number, csrfToken: string, protocol: 'http' | 'https'): Promise<boolean> {
@@ -246,3 +364,4 @@ function testPortWithProtocol(port: number, csrfToken: string, protocol: 'http' 
         req.end();
     });
 }
+

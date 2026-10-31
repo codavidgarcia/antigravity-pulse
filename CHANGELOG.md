@@ -2,6 +2,18 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.7.0] - 2026-10-31
+
+### Added
+- **5-Hour Rolling Limit in Status Bar** — status bar now displays the active daily 5-hour rolling limit for Gemini and Claude/GPT pools with real-time health indicator dots (🟢/🟡/🔴)
+- **Weekly Quota in Hover Tooltip** — hover overlay now displays both the 5-hour limit and weekly quota (`📅 Weekly Limit: 86%`) with progress bars and countdown timers
+- **Log-Based Language Server Discovery** — automatically reads active port and CSRF token from Antigravity IDE logs for instant, zero-latency detection across Windows, macOS, and Linux
+- **Windows Process Detection Fix** — encoded PowerShell commands to eliminate `cmd.exe` quote-stripping issues when detecting language server processes on Windows
+
+### Technical
+- Concurrently queries `RetrieveUserQuotaSummary` and `GetUserStatus` with graceful fallback
+- Added `fiveHourPct` and `weeklyPct` fields to `QuotaPool`
+
 ## [1.6.0] - 2026-04-06
 
 ### Added

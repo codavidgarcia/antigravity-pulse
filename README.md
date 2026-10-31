@@ -15,17 +15,17 @@
 
 Hover for a rich Markdown tooltip with per-pool progress bars, model breakdown, and reset timers. Click for a quick-access options menu.
 
-### New in 1.6.0
+### New in 1.7.0
 
-**Google One AI Credits** — your AI credit balance is now visible directly in the status bar:
-
-- Shows `✦ AI 23.5k` at a glance, with full balance in the tooltip (`✦ Google AI Credits — 23,473`)
-- Toggle on/off via the options menu or `antigravityPulse.showAICredits` setting
-- Automatically parsed from Antigravity's local API — no extra setup needed
+- **5-Hour Rolling Limit in Status Bar** — shows the active 5-hour rolling limit for Gemini and Claude/GPT pools directly in the status bar with color health dots (🟢/🟡/🔴).
+- **Weekly Quota in Tooltip** — hover overlay now shows both the 5-hour rolling limit and weekly quota (`📅 Weekly Limit: 86%`) with visual progress bars and reset countdowns.
+- **Log-Based Language Server Discovery** — detects local Antigravity Language Server port and CSRF token instantly via log inspection on Windows, macOS, and Linux.
+- **Windows Process Detection Fix** — encoded PowerShell commands to eliminate `cmd.exe` quote stripping.
 
 <details>
 <summary>Previous highlights</summary>
 
+- **1.6.0** — Google One AI Credits in status bar (`✦ AI 23.5k`) and full balance in tooltip
 - **1.5.0** — Click-to-options menu: click the status bar for a quick-pick with all controls
 - **1.4.3** — Compact display mode for narrow windows (`Cmd+Shift+P` → Cycle Display Mode)
 - **1.4.0** — Smart polling: pauses when you leave Antigravity, resumes on return
