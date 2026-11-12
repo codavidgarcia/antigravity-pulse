@@ -2,6 +2,13 @@
 
 All notable changes to Antigravity Pulse will be documented in this file to keep the project transparent and open-source.
 
+## [1.6.1] - 2026-11-12
+
+### Fixed
+- **Antigravity IDE 2.6.0+ Compatibility** — process detection now scans for the `agy` binary and `--hub-port` argument alongside the legacy `language_server_*` process and `--extension_server_port`
+- **Disabled Models & Empty Quotas** — skipped disabled model entries (such as `Gemini 4 Carbon`) and empty quota objects in the API response to avoid `RangeError: Invalid time value`
+- **Missing AI Credits** — safely handled accounts where `creditAmount` is omitted from the API response to avoid `NaN` values
+
 ## [1.6.0] - 2026-04-06
 
 ### Added

@@ -89,7 +89,7 @@ Hover over the status bar item for a detailed, formatted breakdown:
 
 ## How it works
 
-1. **Process detection** scans for the Antigravity `language_server` process
+1. **Process detection** scans for the Antigravity `agy` or `language_server` process
 2. **Token extraction** reads the CSRF token from the process arguments
 3. **Port discovery** finds the correct local API port
 4. **Local API call** `POST https://127.0.0.1:{port}/.../GetUserStatus`, strictly local
