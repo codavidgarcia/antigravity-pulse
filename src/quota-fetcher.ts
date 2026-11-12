@@ -233,9 +233,10 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
     // ── Per-model quotas ──
     const rawModels: any[] = userStatus.cascadeModelConfigData?.clientModelConfigs || [];
     const models: ModelQuota[] = rawModels
-        .filter((m: any) => m.quotaInfo)
+        .filter((m: any) => !m.disabled && m.quotaInfo && typeof m.quotaInfo.remainingFraction === 'number')
         .map((m: any) => {
-            const resetTime = new Date(m.quotaInfo.resetTime);
+            const hasValidReset = m.quotaInfo.resetTime && !isNaN(new Date(m.quotaInfo.resetTime).getTime());
+            const resetTime = hasValidReset ? new Date(m.quotaInfo.resetTime) : new Date(Date.now() + 5 * 3600 * 1000);
             const diff = resetTime.getTime() - Date.now();
             const fraction = m.quotaInfo.remainingFraction ?? 0;
             const label = m.label || 'Unknown';
@@ -291,11 +292,13 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
     }
 
     // ── AI Credits (Google One, etc.) ──
-    const aiCredits: AICredit[] = (userStatus.userTier?.availableCredits || []).map(c => ({
-        creditType: c.creditType,
-        creditAmount: Number(c.creditAmount),
-        minimumForUsage: Number(c.minimumCreditAmountForUsage),
-    }));
+    const aiCredits: AICredit[] = (userStatus.userTier?.availableCredits || [])
+        .filter((c: any) => c.creditAmount !== undefined && !isNaN(Number(c.creditAmount)))
+        .map((c: any) => ({
+            creditType: c.creditType,
+            creditAmount: Number(c.creditAmount) || 0,
+            minimumForUsage: Number(c.minimumCreditAmountForUsage) || 0,
+        }));
 
     return { credits, aiCredits, pools, models, timestamp: new Date() };
 }
