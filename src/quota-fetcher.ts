@@ -233,10 +233,11 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
     // ── Per-model quotas ──
     const rawModels: any[] = userStatus.cascadeModelConfigData?.clientModelConfigs || [];
     const models: ModelQuota[] = rawModels
-        .filter((m: any) => m.quotaInfo)
+        .filter((m: any) => m.quotaInfo && m.quotaInfo.resetTime)
         .map((m: any) => {
             const resetTime = new Date(m.quotaInfo.resetTime);
-            const diff = resetTime.getTime() - Date.now();
+            const isValidDate = !isNaN(resetTime.getTime());
+            const diff = isValidDate ? resetTime.getTime() - Date.now() : 0;
             const fraction = m.quotaInfo.remainingFraction ?? 0;
             const label = m.label || 'Unknown';
             const modelId = m.modelOrAlias?.model || 'unknown';
@@ -247,8 +248,8 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
                 family: classifyFamily(label, modelId),
                 remainingPct: fraction * 100,
                 isExhausted: fraction === 0,
-                resetTime,
-                timeUntilReset: formatTime(diff),
+                resetTime: isValidDate ? resetTime : new Date(),
+                timeUntilReset: isValidDate ? formatTime(diff) : 'Now',
             };
         });
 
@@ -256,7 +257,8 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
     // Models with identical remainingFraction AND resetTime are in the same pool.
     const bucketMap = new Map<string, ModelQuota[]>();
     for (const m of models) {
-        const key = `${m.remainingPct}|${m.resetTime.toISOString()}`;
+        const resetStr = m.resetTime instanceof Date && !isNaN(m.resetTime.getTime()) ? m.resetTime.toISOString() : 'none';
+        const key = `${m.remainingPct}|${resetStr}`;
         const list = bucketMap.get(key) || [];
         list.push(m);
         bucketMap.set(key, list);
@@ -291,11 +293,13 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
     }
 
     // ── AI Credits (Google One, etc.) ──
-    const aiCredits: AICredit[] = (userStatus.userTier?.availableCredits || []).map(c => ({
-        creditType: c.creditType,
-        creditAmount: Number(c.creditAmount),
-        minimumForUsage: Number(c.minimumCreditAmountForUsage),
-    }));
+    const aiCredits: AICredit[] = (userStatus.userTier?.availableCredits || [])
+        .filter(c => c.creditAmount !== undefined && !isNaN(Number(c.creditAmount)))
+        .map(c => ({
+            creditType: c.creditType,
+            creditAmount: Number(c.creditAmount),
+            minimumForUsage: Number(c.minimumCreditAmountForUsage),
+        }));
 
     return { credits, aiCredits, pools, models, timestamp: new Date() };
 }
