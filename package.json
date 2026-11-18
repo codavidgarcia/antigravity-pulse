@@ -56,6 +56,10 @@
             {
                 "command": "antigravityPulse.toggleShowAICredits",
                 "title": "Antigravity Pulse: Toggle AI Credits in Status Bar"
+            },
+            {
+                "command": "antigravityPulse.toggleWeeklyQuota",
+                "title": "Antigravity Pulse: Toggle Weekly Quota in Status Bar"
             }
         ],
         "configuration": {
@@ -81,6 +85,11 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Show the time until quota reset next to each pool in the status bar"
+                },
+                "antigravityPulse.showWeeklyQuota": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show weekly (7-day) quota percentage in the status bar alongside the 5-hour quota"
                 },
                 "antigravityPulse.smartPolling": {
                     "type": "boolean",

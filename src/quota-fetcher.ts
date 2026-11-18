@@ -36,10 +36,13 @@ export interface ModelQuota {
 export interface QuotaPool {
     id: string;               // dynamic key, e.g. "gemini" or "gemini_flash"
     displayName: string;      // human-friendly name
-    remainingPct: number;     // 0–100
+    remainingPct: number;     // 0–100 (5-hour or principal limit)
     isExhausted: boolean;
     resetTime: Date;
     timeUntilReset: string;
+    weeklyPct?: number;       // 0–100 (weekly / 7-day limit)
+    weeklyResetTime?: Date;
+    weeklyTimeUntilReset?: string;
     models: ModelQuota[];
 }
 
@@ -79,6 +82,28 @@ interface ServerResponse {
                 minimumCreditAmountForUsage: string;
             }[];
         };
+    };
+}
+
+interface SummaryBucket {
+    bucketId: string;
+    displayName: string;
+    description?: string;
+    window?: string;
+    remainingFraction: number;
+    resetTime: string;
+}
+
+interface SummaryGroup {
+    displayName: string;
+    description?: string;
+    buckets: SummaryBucket[];
+}
+
+interface QuotaSummaryResponse {
+    response?: {
+        groups?: SummaryGroup[];
+        description?: string;
     };
 }
 
@@ -144,7 +169,7 @@ function derivePoolName(models: ModelQuota[], totalPoolCount: number): { id: str
 // ─── Fetcher ────────────────────────────────────────────────────────
 
 export async function fetchQuota(port: number, csrfToken: string): Promise<QuotaSnapshot> {
-    const data = await postWithFallback<ServerResponse>(port, csrfToken,
+    const userStatusPromise = postWithFallback<ServerResponse>(port, csrfToken,
         '/exa.language_server_pb.LanguageServerService/GetUserStatus',
         {
             metadata: {
@@ -155,7 +180,14 @@ export async function fetchQuota(port: number, csrfToken: string): Promise<Quota
         }
     );
 
-    return parseResponse(data);
+    const summaryPromise = postWithFallback<QuotaSummaryResponse>(port, csrfToken,
+        '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary',
+        { project: ' ' }
+    ).catch(() => null);
+
+    const [data, summary] = await Promise.all([userStatusPromise, summaryPromise]);
+
+    return parseResponse(data, summary);
 }
 
 // ─── Internals ──────────────────────────────────────────────────────
@@ -211,7 +243,7 @@ function post<T>(port: number, csrfToken: string, path: string, body: object, pr
     });
 }
 
-function parseResponse(data: ServerResponse): QuotaSnapshot {
+function parseResponse(data: ServerResponse, summary?: QuotaSummaryResponse | null): QuotaSnapshot {
     const userStatus = data.userStatus;
     const planInfo = userStatus.planStatus?.planInfo;
     const availableRaw = userStatus.planStatus?.availablePromptCredits;
@@ -290,6 +322,49 @@ function parseResponse(data: ServerResponse): QuotaSnapshot {
             timeUntilReset: rep.timeUntilReset,
             models: members,
         });
+    }
+
+    // ── Merge aggregate & weekly quotas from QuotaSummary API if available ──
+    if (summary?.response?.groups) {
+        for (const g of summary.response.groups) {
+            const lowerName = g.displayName.toLowerCase();
+            const lowerDesc = (g.description || '').toLowerCase();
+
+            let targetPool: QuotaPool | undefined;
+            if (lowerName.includes('argon') || lowerDesc.includes('argon')) {
+                targetPool = pools.find(p => p.id === 'gemini_pro' || p.models.some(m => m.label.toLowerCase().includes('argon')));
+            } else if (lowerName.includes('claude') || lowerName.includes('gpt') || lowerDesc.includes('claude') || lowerDesc.includes('gpt')) {
+                targetPool = pools.find(p => p.id === 'claude_gpt' || p.id === 'claude' || p.models.some(m => m.family === 'claude' || m.family === 'gpt'));
+            } else if (lowerName.includes('gemini') || lowerDesc.includes('gemini')) {
+                targetPool = pools.find(p => (p.id === 'gemini' || p.id === 'gemini_flash') && !p.models.some(m => m.label.toLowerCase().includes('argon')));
+            }
+
+            if (!targetPool) { continue; }
+
+            for (const b of g.buckets) {
+                const fraction = b.remainingFraction ?? 0;
+                const bPct = fraction * 100;
+                const bReset = b.resetTime ? new Date(b.resetTime) : null;
+                const isValidDate = bReset && !isNaN(bReset.getTime());
+                const bDiff = isValidDate ? bReset.getTime() - Date.now() : 0;
+                const bTimeUntilReset = isValidDate ? formatTime(bDiff) : 'Unknown';
+
+                if (b.window === 'weekly' || b.bucketId.includes('weekly')) {
+                    targetPool.weeklyPct = bPct;
+                    if (isValidDate) {
+                        targetPool.weeklyResetTime = bReset;
+                        targetPool.weeklyTimeUntilReset = bTimeUntilReset;
+                    }
+                } else if (b.window === '5h' || b.bucketId.includes('5h')) {
+                    targetPool.remainingPct = bPct;
+                    targetPool.isExhausted = fraction === 0;
+                    if (isValidDate) {
+                        targetPool.resetTime = bReset;
+                        targetPool.timeUntilReset = bTimeUntilReset;
+                    }
+                }
+            }
+        }
     }
 
     // ── AI Credits (Google One, etc.) ──
