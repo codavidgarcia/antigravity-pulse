@@ -246,15 +246,23 @@ async function testPort(port: number, csrfToken: string): Promise<boolean> {
 
 function testPortWithProtocol(port: number, csrfToken: string, protocol: 'http' | 'https'): Promise<boolean> {
     return new Promise(resolve => {
+        const payload = JSON.stringify({
+            metadata: {
+                ideName: 'antigravity',
+                extensionName: 'antigravity',
+                locale: 'en',
+            },
+        });
         const lib = protocol === 'https' ? https : http;
         const req = lib.request(
             {
                 hostname: '127.0.0.1',
                 port,
-                path: '/exa.language_server_pb.LanguageServerService/GetUnleashData',
+                path: '/exa.language_server_pb.LanguageServerService/GetUserStatus',
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(payload),
                     'X-Codeium-Csrf-Token': csrfToken,
                     'Connect-Protocol-Version': '1',
                 },
@@ -262,18 +270,28 @@ function testPortWithProtocol(port: number, csrfToken: string, protocol: 'http' 
                 timeout: 3000,
             },
             res => {
-                let body = '';
-                res.on('data', (chunk: Buffer) => (body += chunk));
+                res.on('error', () => resolve(false));
+                if (res.statusCode !== 200) {
+                    res.resume();
+                    resolve(false);
+                    return;
+                }
+                const chunks: Buffer[] = [];
+                res.on('data', (chunk: Buffer) => chunks.push(chunk));
                 res.on('end', () => {
-                    if (res.statusCode === 200) {
-                        try { JSON.parse(body); resolve(true); } catch { resolve(false); }
-                    } else { resolve(false); }
+                    try {
+                        const body = Buffer.concat(chunks).toString('utf-8');
+                        JSON.parse(body);
+                        resolve(true);
+                    } catch {
+                        resolve(false);
+                    }
                 });
             }
         );
         req.on('error', () => resolve(false));
         req.on('timeout', () => { req.destroy(); resolve(false); });
-        req.write(JSON.stringify({ wrapper_data: {} }));
+        req.write(payload);
         req.end();
     });
 }
