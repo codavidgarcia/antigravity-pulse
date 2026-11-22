@@ -1,5 +1,5 @@
 /**
- * Process Finder – Detects Antigravity's language_server process,
+ * Process Finder – Detects Antigravity's server process (agy --hub or legacy language_server),
  * extracts the CSRF token and discovers the API port.
  */
 
@@ -19,27 +19,45 @@ export interface ProcessInfo {
 interface ParsedProcess {
     pid: number;
     extensionPort: number;
+    hubPort: number;
     csrfToken: string;
 }
 
 /**
- * Finds the running Antigravity language_server process, extracts
+ * Finds the running Antigravity language_server or agy --hub process, extracts
  * connection parameters, and discovers the correct API port.
  */
-export async function findAntigravityProcess(workspacePath?: string): Promise<ProcessInfo | null> {
-    const processName = getProcessName();
+export async function findAntigravityProcess(
+    workspacePath?: string,
+    extensionHint?: Partial<ProcessInfo>
+): Promise<ProcessInfo | null> {
+    if (extensionHint?.port && extensionHint?.csrfToken) {
+        if (await testPort(extensionHint.port, extensionHint.csrfToken)) {
+            return { port: extensionHint.port, csrfToken: extensionHint.csrfToken };
+        }
+    }
+
+    const processNames = getProcessNames();
 
     try {
-        const parsed = await findProcess(processName, workspacePath);
-        if (!parsed) { return null; }
+        const candidates = await findProcesses(processNames, workspacePath);
+        for (const parsed of candidates) {
+            if (parsed.hubPort > 0 && await testPort(parsed.hubPort, parsed.csrfToken)) {
+                return { port: parsed.hubPort, csrfToken: parsed.csrfToken };
+            }
+            if (parsed.extensionPort > 0 && parsed.extensionPort !== parsed.hubPort && await testPort(parsed.extensionPort, parsed.csrfToken)) {
+                return { port: parsed.extensionPort, csrfToken: parsed.csrfToken };
+            }
 
-        const ports = await getListeningPorts(parsed.pid);
-        if (ports.length === 0) { return null; }
+            const ports = await getListeningPorts(parsed.pid);
+            if (ports.length === 0) { continue; }
 
-        const workingPort = await findWorkingPort(ports, parsed.csrfToken);
-        if (!workingPort) { return null; }
-
-        return { port: workingPort, csrfToken: parsed.csrfToken };
+            const workingPort = await findWorkingPort(ports, parsed.csrfToken);
+            if (workingPort) {
+                return { port: workingPort, csrfToken: parsed.csrfToken };
+            }
+        }
+        return null;
     } catch {
         return null;
     }
@@ -47,63 +65,89 @@ export async function findAntigravityProcess(workspacePath?: string): Promise<Pr
 
 // ─── Internals ──────────────────────────────────────────────────────
 
-function getProcessName(): string {
+function getProcessNames(): string[] {
     if (process.platform === 'win32') {
-        return 'language_server_windows_x64.exe';
+        return ['agy.exe', 'language_server_windows_x64.exe'];
     }
     if (process.platform === 'darwin') {
-        return `language_server_macos${process.arch === 'arm64' ? '_arm' : ''}`;
+        return ['agy', `language_server_macos${process.arch === 'arm64' ? '_arm' : ''}`];
     }
-    return `language_server_linux${process.arch === 'arm64' ? '_arm' : '_x64'}`;
+    return ['agy', `language_server_linux${process.arch === 'arm64' ? '_arm' : '_x64'}`];
 }
 
-async function findProcess(name: string, workspacePath?: string): Promise<ParsedProcess | null> {
+async function findProcesses(names: string[], workspacePath?: string): Promise<ParsedProcess[]> {
+    const filter = names.map(n => `name='${n}'`).join(' OR ');
+    const pattern = names.join('|');
     const cmd = process.platform === 'win32'
-        ? `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='${name}'\\" | Select-Object ProcessId,CommandLine | ConvertTo-Json"`
+        ? `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"${filter}\\" | Select-Object ProcessId,CommandLine | ConvertTo-Json"`
         : process.platform === 'darwin'
-            ? `pgrep -fl ${name}`
-            : `pgrep -af ${name}`;
+            ? `pgrep -fl "${pattern}"`
+            : `pgrep -af "${pattern}"`;
 
     const { stdout } = await execAsync(cmd);
     return parseProcessOutput(stdout, workspacePath);
 }
 
-function parseProcessOutput(stdout: string, workspacePath?: string): ParsedProcess | null {
+function parseProcessOutput(stdout: string, workspacePath?: string): ParsedProcess[] {
     if (process.platform === 'win32') {
-        return parseWindows(stdout);
+        return parseWindows(stdout, workspacePath);
     }
     return parseUnix(stdout, workspacePath);
 }
 
-function parseWindows(stdout: string): ParsedProcess | null {
+function parseWindows(stdout: string, workspacePath?: string): ParsedProcess[] {
     try {
-        let data = JSON.parse(stdout.trim());
-        if (Array.isArray(data)) {
-            // Filter to Antigravity processes only
-            data = data.filter((d: any) => {
-                const cmd = (d.CommandLine || '').toLowerCase();
-                return /--app_data_dir\s+antigravity\b/i.test(d.CommandLine || '')
-                    || cmd.includes('\\antigravity\\')
-                    || cmd.includes('/antigravity/');
+        const trimmed = stdout.trim();
+        if (!trimmed) { return []; }
+
+        const raw = JSON.parse(trimmed);
+        const list = Array.isArray(raw) ? raw : [raw];
+
+        // Filter to Antigravity processes only (agy --hub or legacy language_server)
+        const candidates = list.filter((d: any) => {
+            const cmdLine = d?.CommandLine || '';
+            const cmd = cmdLine.toLowerCase();
+            const hasToken = /--csrf_token[=\s]+[a-f0-9\-]+/i.test(cmdLine);
+            const isAntigravity = /--app_data_dir[=\s]+antigravity(?:-ide)?\b/i.test(cmdLine)
+                || /--hub\b/i.test(cmdLine)
+                || cmd.includes('\\antigravity\\')
+                || cmd.includes('/antigravity/')
+                || cmd.includes('antigravity-ide');
+            return Boolean(d?.ProcessId && hasToken && isAntigravity);
+        });
+        if (candidates.length === 0) { return []; }
+
+        const wsNorm = workspacePath ? workspacePath.toLowerCase() : null;
+        const wsId = workspacePath ? toWorkspaceId(workspacePath).toLowerCase() : null;
+        const prioritized = [...candidates].sort((a: any, b: any) => {
+            const aCmd = (a.CommandLine || '').toLowerCase();
+            const bCmd = (b.CommandLine || '').toLowerCase();
+            const aMatch = wsNorm ? (aCmd.includes(wsNorm) || (wsId ? aCmd.includes(wsId) : false)) : false;
+            const bMatch = wsNorm ? (bCmd.includes(wsNorm) || (wsId ? bCmd.includes(wsId) : false)) : false;
+            return Number(bMatch) - Number(aMatch);
+        });
+
+        const parsedList: ParsedProcess[] = [];
+        for (const data of prioritized) {
+            const cmdLine = data.CommandLine || '';
+            const pid = data.ProcessId;
+            if (!pid) { continue; }
+
+            const port = cmdLine.match(/--extension_server_port[=\s]+(\d+)/);
+            const hubPort = cmdLine.match(/--hub[-_]port[=\s]+(\d+)/);
+            const token = cmdLine.match(/--csrf_token[=\s]+([a-f0-9\-]+)/i);
+            if (!token?.[1]) { continue; }
+
+            parsedList.push({
+                pid,
+                extensionPort: port ? parseInt(port[1], 10) : 0,
+                hubPort: hubPort ? parseInt(hubPort[1], 10) : 0,
+                csrfToken: token[1],
             });
-            if (data.length === 0) { return null; }
-            data = data[0];
         }
-        const cmdLine = data.CommandLine || '';
-        const pid = data.ProcessId;
-        if (!pid) { return null; }
-
-        const port = cmdLine.match(/--extension_server_port[=\s]+(\d+)/);
-        const token = cmdLine.match(/--csrf_token[=\s]+([a-f0-9\-]+)/i);
-        if (!token?.[1]) { return null; }
-
-        return {
-            pid,
-            extensionPort: port ? parseInt(port[1], 10) : 0,
-            csrfToken: token[1],
-        };
+        return parsedList;
     } catch {
-        return null;
+        return [];
     }
 }
 
@@ -116,26 +160,40 @@ function toWorkspaceId(folderPath: string): string {
     return 'file' + folderPath.replace(/ /g, '_20').replace(/\//g, '_');
 }
 
-function parseUnix(stdout: string, workspacePath?: string): ParsedProcess | null {
+function parseUnix(stdout: string, workspacePath?: string): ParsedProcess[] {
     const wsId = workspacePath ? toWorkspaceId(workspacePath) : null;
-    const lines = stdout.split('\n').filter(l => l.includes('--extension_server_port'));
+    const lines = stdout.split('\n').filter(l =>
+        (l.includes('--extension_server_port') || l.includes('--hub-port') || l.includes('--hub'))
+        && l.includes('--csrf_token')
+    );
+    if (lines.length === 0) { return []; }
 
-    // Prefer the line matching our workspace, fall back to first match
-    const target = (wsId && lines.find(l => l.includes(wsId))) || lines[0];
-    if (!target) { return null; }
+    const prioritized = [...lines].sort((a, b) => {
+        const aMatch = workspacePath ? (a.includes(workspacePath) || (wsId ? a.includes(wsId) : false)) : false;
+        const bMatch = workspacePath ? (b.includes(workspacePath) || (wsId ? b.includes(wsId) : false)) : false;
+        return Number(bMatch) - Number(aMatch);
+    });
 
-    const parts = target.trim().split(/\s+/);
-    const pid = parseInt(parts[0], 10);
-    const cmd = target.substring(parts[0].length).trim();
+    const parsedList: ParsedProcess[] = [];
+    for (const target of prioritized) {
+        const parts = target.trim().split(/\s+/);
+        const pid = parseInt(parts[0], 10);
+        if (isNaN(pid)) { continue; }
+        const cmd = target.substring(parts[0].length).trim();
 
-    const port = cmd.match(/--extension_server_port[=\s]+(\d+)/);
-    const token = cmd.match(/--csrf_token[=\s]+([a-zA-Z0-9\-]+)/);
+        const port = cmd.match(/--extension_server_port[=\s]+(\d+)/);
+        const hubPort = cmd.match(/--hub[-_]port[=\s]+(\d+)/);
+        const token = cmd.match(/--csrf_token[=\s]+([a-zA-Z0-9\-]+)/);
+        if (!token?.[1]) { continue; }
 
-    return {
-        pid,
-        extensionPort: port ? parseInt(port[1], 10) : 0,
-        csrfToken: token ? token[1] : '',
-    };
+        parsedList.push({
+            pid,
+            extensionPort: port ? parseInt(port[1], 10) : 0,
+            hubPort: hubPort ? parseInt(hubPort[1], 10) : 0,
+            csrfToken: token[1],
+        });
+    }
+    return parsedList;
 }
 
 async function getListeningPorts(pid: number): Promise<number[]> {
@@ -205,25 +263,60 @@ async function findWorkingPort(ports: number[], csrfToken: string): Promise<numb
 }
 
 /**
- * Try HTTP first; if it fails, fall back to HTTPS on the same port.
+ * Try GetUserStatus (agy --hub / 2.6.0+) first, then GetUnleashData (legacy 1.x),
+ * falling back from HTTP to HTTPS for each endpoint.
  */
 async function testPort(port: number, csrfToken: string): Promise<boolean> {
-    const ok = await testPortWithProtocol(port, csrfToken, 'http');
-    if (ok) { return true; }
-    return testPortWithProtocol(port, csrfToken, 'https');
+    const probes: Array<{ protocol: 'http' | 'https'; path: string; body: object }> = [
+        {
+            protocol: 'http',
+            path: '/exa.language_server_pb.LanguageServerService/GetUserStatus',
+            body: { metadata: { ideName: 'antigravity', extensionName: 'antigravity', locale: 'en' } },
+        },
+        {
+            protocol: 'https',
+            path: '/exa.language_server_pb.LanguageServerService/GetUserStatus',
+            body: { metadata: { ideName: 'antigravity', extensionName: 'antigravity', locale: 'en' } },
+        },
+        {
+            protocol: 'http',
+            path: '/exa.language_server_pb.LanguageServerService/GetUnleashData',
+            body: { wrapper_data: {} },
+        },
+        {
+            protocol: 'https',
+            path: '/exa.language_server_pb.LanguageServerService/GetUnleashData',
+            body: { wrapper_data: {} },
+        },
+    ];
+
+    for (const probe of probes) {
+        if (await testPortWithProtocol(port, csrfToken, probe.protocol, probe.path, probe.body)) {
+            return true;
+        }
+    }
+    return false;
 }
 
-function testPortWithProtocol(port: number, csrfToken: string, protocol: 'http' | 'https'): Promise<boolean> {
+function testPortWithProtocol(
+    port: number,
+    csrfToken: string,
+    protocol: 'http' | 'https',
+    path: string,
+    bodyObj: object
+): Promise<boolean> {
     return new Promise(resolve => {
         const lib = protocol === 'https' ? https : http;
+        const payload = JSON.stringify(bodyObj);
         const req = lib.request(
             {
                 hostname: '127.0.0.1',
                 port,
-                path: '/exa.language_server_pb.LanguageServerService/GetUnleashData',
+                path,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(payload),
                     'X-Codeium-Csrf-Token': csrfToken,
                     'Connect-Protocol-Version': '1',
                 },
@@ -242,7 +335,7 @@ function testPortWithProtocol(port: number, csrfToken: string, protocol: 'http' 
         );
         req.on('error', () => resolve(false));
         req.on('timeout', () => { req.destroy(); resolve(false); });
-        req.write(JSON.stringify({ wrapper_data: {} }));
+        req.write(payload);
         req.end();
     });
 }
