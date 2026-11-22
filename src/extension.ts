@@ -68,6 +68,12 @@ export async function activate(ctx: vscode.ExtensionContext) {
             const current = cfg.get<boolean>('showAICredits', true);
             await cfg.update('showAICredits', !current, vscode.ConfigurationTarget.Global);
             if (lastSnapshot) { updateStatusBar(lastSnapshot); }
+        }),
+        vscode.commands.registerCommand('antigravityPulse.toggleWeeklyQuota', async () => {
+            const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+            const current = cfg.get<boolean>('showWeeklyQuota', false);
+            await cfg.update('showWeeklyQuota', !current, vscode.ConfigurationTarget.Global);
+            if (lastSnapshot) { updateStatusBar(lastSnapshot); }
         })
     );
 
@@ -223,6 +229,7 @@ function updateStatusBar(snap: QuotaSnapshot) {
         const cfg = vscode.workspace.getConfiguration('antigravityPulse');
         const showReset = cfg.get<boolean>('showResetTime', false);
         const showAICredits = cfg.get<boolean>('showAICredits', true);
+        const showWeekly = cfg.get<boolean>('showWeeklyQuota', true);
         const mode = cfg.get<string>('displayMode', 'full');
         const isCompact = mode === 'compact';
 
@@ -240,7 +247,27 @@ function updateStatusBar(snap: QuotaSnapshot) {
                 ? compactPoolLabel(pool.id, allPoolIds)
                 : (POOL_SHORT[pool.id] || pool.displayName);
             const pct = Math.round(pool.remainingPct);
-            let part = `${healthDot(pool.remainingPct)} ${name} ${pct}%`;
+
+            let part: string;
+            const hasWeekly = pool.weeklyPct !== undefined;
+            const isPureWeekly = pool.id === 'gemini_pro';
+
+            if (showWeekly && hasWeekly) {
+                const wPct = Math.round(pool.weeklyPct!);
+                const minPct = isPureWeekly ? wPct : Math.min(pool.remainingPct, pool.weeklyPct!);
+                if (isPureWeekly) {
+                    part = isCompact
+                        ? `${healthDot(minPct)} ${name} ${wPct}%`
+                        : `${healthDot(minPct)} ${name} (7d) ${wPct}%`;
+                } else {
+                    part = isCompact
+                        ? `${healthDot(minPct)} ${name} ${pct}%/${wPct}%`
+                        : `${healthDot(minPct)} ${name} ${pct}% (7d: ${wPct}%)`;
+                }
+            } else {
+                part = `${healthDot(pool.remainingPct)} ${name} ${pct}%`;
+            }
+
             if (showReset && pool.timeUntilReset) {
                 const time = isCompact ? compactTime(pool.timeUntilReset) : pool.timeUntilReset;
                 part += ` [${time}]`;
@@ -292,18 +319,47 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
     // ── Per-pool sections ──
     for (let i = 0; i < snap.pools.length; i++) {
         const pool = snap.pools[i];
-        const pct = pool.remainingPct;
-        const emoji = pct > 50 ? '🟢' : pct > 20 ? '🟡' : '🔴';
-        const bar = visualBar(pct);
-
-        const msUntilReset = pool.resetTime.getTime() - Date.now();
         const timeOpts = clockOptions();
-        const resetLocal = msUntilReset > 86_400_000
-            ? pool.resetTime.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
-            pool.resetTime.toLocaleTimeString([], timeOpts)
-            : pool.resetTime.toLocaleTimeString([], timeOpts);
-        md.appendMarkdown(`**${emoji} ${pool.displayName}** — ${pct.toFixed(0)}%\n\n`);
-        md.appendMarkdown(`${bar} resets in **${pool.timeUntilReset}** _(${resetLocal})_\n\n`);
+        const isPureWeekly = pool.id === 'gemini_pro';
+
+        if (pool.weeklyPct !== undefined && !isPureWeekly) {
+            const p5h = pool.remainingPct;
+            const pWeekly = pool.weeklyPct;
+            const minPct = Math.min(p5h, pWeekly);
+            const emoji = minPct > 50 ? '🟢' : minPct > 20 ? '🟡' : '🔴';
+
+            const msUntil5h = pool.resetTime.getTime() - Date.now();
+            const resetLocal5h = msUntil5h > 86_400_000
+                ? pool.resetTime.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
+                  pool.resetTime.toLocaleTimeString([], timeOpts)
+                : pool.resetTime.toLocaleTimeString([], timeOpts);
+
+            const msUntilW = pool.weeklyResetTime ? pool.weeklyResetTime.getTime() - Date.now() : 0;
+            const resetLocalW = pool.weeklyResetTime && msUntilW > 86_400_000
+                ? pool.weeklyResetTime.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
+                  pool.weeklyResetTime.toLocaleTimeString([], timeOpts)
+                : pool.weeklyResetTime ? pool.weeklyResetTime.toLocaleTimeString([], timeOpts) : '';
+
+            md.appendMarkdown(`**${emoji} ${pool.displayName}**\n\n`);
+            md.appendMarkdown(`• **5h limit:** **${p5h.toFixed(0)}%** remaining _(resets in ${pool.timeUntilReset} — ${resetLocal5h})_\n\n`);
+            if (pool.weeklyTimeUntilReset) {
+                md.appendMarkdown(`• **Weekly limit:** **${pWeekly.toFixed(0)}%** remaining _(resets in ${pool.weeklyTimeUntilReset} — ${resetLocalW})_\n\n`);
+            }
+        } else {
+            const pct = pool.weeklyPct !== undefined ? pool.weeklyPct : pool.remainingPct;
+            const emoji = pct > 50 ? '🟢' : pct > 20 ? '🟡' : '🔴';
+
+            const resetTime = pool.weeklyResetTime || pool.resetTime;
+            const timeUntil = pool.weeklyTimeUntilReset || pool.timeUntilReset;
+            const msUntilReset = resetTime.getTime() - Date.now();
+            const resetLocal = msUntilReset > 86_400_000
+                ? resetTime.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
+                  resetTime.toLocaleTimeString([], timeOpts)
+                : resetTime.toLocaleTimeString([], timeOpts);
+
+            md.appendMarkdown(`**${emoji} ${pool.displayName}**\n\n`);
+            md.appendMarkdown(`• **Weekly limit:** **${pct.toFixed(0)}%** remaining _(resets in ${timeUntil} — ${resetLocal})_\n\n`);
+        }
 
         // Individual models within the pool
         if (pool.models.length > 1) {
@@ -313,7 +369,6 @@ function buildTooltip(snap: QuotaSnapshot): vscode.MarkdownString {
             }
         }
 
-        // Separator between pools (but not after the last one)
         if (i < snap.pools.length - 1) {
             md.appendMarkdown('---\n\n');
         }
@@ -341,6 +396,7 @@ async function showQuickMenu() {
     const displayMode = cfg.get<string>('displayMode', 'full');
     const showResetTime = cfg.get<boolean>('showResetTime', false);
     const showAICredits = cfg.get<boolean>('showAICredits', true);
+    const showWeeklyQuota = cfg.get<boolean>('showWeeklyQuota', false);
     const smartPolling = cfg.get<boolean>('smartPolling', true);
 
     const items: (vscode.QuickPickItem & { action?: string })[] = [
@@ -361,6 +417,11 @@ async function showQuickMenu() {
             label: `$(sparkle) AI Credits: ${showAICredits ? 'on' : 'off'}`,
             description: showAICredits ? '→ hide from status bar' : '→ show in status bar',
             action: 'aiCredits',
+        },
+        {
+            label: `$(calendar) Weekly Quota: ${showWeeklyQuota ? 'on' : 'off'}`,
+            description: showWeeklyQuota ? '→ hide from status bar' : '→ show in status bar (7d)',
+            action: 'weeklyQuota',
         },
         {
             label: `$(watch) Clock: ${clockFormat}`,
@@ -398,6 +459,8 @@ async function showQuickMenu() {
             return vscode.commands.executeCommand('antigravityPulse.cycleDisplayMode');
         case 'aiCredits':
             return vscode.commands.executeCommand('antigravityPulse.toggleShowAICredits');
+        case 'weeklyQuota':
+            return vscode.commands.executeCommand('antigravityPulse.toggleWeeklyQuota');
         case 'clockFormat':
             return vscode.commands.executeCommand('antigravityPulse.toggleClockFormat');
         case 'resetTime':
