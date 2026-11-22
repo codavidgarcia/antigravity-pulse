@@ -106,24 +106,44 @@ export function deactivate() {
 // ─── Core loop ──────────────────────────────────────────────────────
 
 async function detectAndStart() {
-    await detectProcess();
-    if (processInfo) {
-        await refreshQuota();
-        startPolling();
-    } else {
-        showError('Antigravity not found');
+    // Retry a few times at startup in case agy --hub is still spawning
+    for (let attempt = 0; attempt < 5; attempt++) {
+        await detectProcess();
+        if (processInfo) {
+            await refreshQuota();
+            startPolling();
+            return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
     }
+    showError('Antigravity not found');
+    startPolling();
+}
+
+function getBuiltInExtensionHint(): Partial<ProcessInfo> | undefined {
+    const ext = vscode.extensions.getExtension<any>('google.google-antigravity');
+    if (ext?.isActive && ext.exports) {
+        const port = typeof ext.exports.port === 'number' ? ext.exports.port : undefined;
+        const csrfToken = typeof ext.exports.csrfToken === 'string' ? ext.exports.csrfToken : undefined;
+        if (port && csrfToken) {
+            return { port, csrfToken };
+        }
+    }
+    return undefined;
 }
 
 async function detectProcess() {
     const wsPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    processInfo = await findAntigravityProcess(wsPath);
+    processInfo = await findAntigravityProcess(wsPath, getBuiltInExtensionHint());
 }
 
 async function refreshQuota() {
     if (!processInfo) {
-        showError('No connection');
-        return;
+        await detectProcess();
+        if (!processInfo) {
+            showError('Antigravity not found');
+            return;
+        }
     }
 
     try {
@@ -132,7 +152,7 @@ async function refreshQuota() {
         updateStatusBar(snapshot);
     } catch {
         // Process might have restarted – re-detect once
-        processInfo = await findAntigravityProcess(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+        await detectProcess();
         if (processInfo) {
             try {
                 const snapshot = await fetchQuota(processInfo.port, processInfo.csrfToken);
