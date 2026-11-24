@@ -7,6 +7,9 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as http from 'http';
 import * as https from 'https';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import * as process from 'process';
 
 const execAsync = promisify(exec);
@@ -22,11 +25,30 @@ interface ParsedProcess {
     csrfToken: string;
 }
 
+interface DaemonHub {
+    pid: number;
+    httpPort: number;
+    httpsPort?: number;
+    csrfToken: string;
+    lsVersion?: string;
+}
+
 /**
  * Finds the running Antigravity language_server process, extracts
  * connection parameters, and discovers the correct API port.
  */
 export async function findAntigravityProcess(workspacePath?: string): Promise<ProcessInfo | null> {
+    // 1. Try daemon hub files (modern Antigravity / agy >= 2.34)
+    try {
+        const fromDaemon = await findFromDaemonFiles(workspacePath);
+        if (fromDaemon) {
+            return fromDaemon;
+        }
+    } catch {
+        // Fall back to legacy CLI discovery
+    }
+
+    // 2. Legacy fallback: parse command line arguments (--csrf_token)
     const processName = getProcessName();
 
     try {
@@ -49,6 +71,111 @@ export async function findAntigravityProcess(workspacePath?: string): Promise<Pr
 }
 
 // ─── Internals ──────────────────────────────────────────────────────
+
+function getDaemonDirs(): string[] {
+    const dirs: string[] = [
+        path.join(os.homedir(), '.gemini', 'antigravity', 'daemon'),
+        path.join(os.homedir(), '.antigravity', 'daemon'),
+    ];
+
+    if (process.platform === 'win32') {
+        if (process.env.APPDATA) {
+            dirs.push(path.join(process.env.APPDATA, 'antigravity', 'daemon'));
+        }
+        if (process.env.USERPROFILE) {
+            dirs.push(path.join(process.env.USERPROFILE, '.gemini', 'antigravity', 'daemon'));
+        }
+    } else {
+        dirs.push(path.join(os.homedir(), '.config', 'antigravity', 'daemon'));
+    }
+
+    return dirs.filter(d => fs.existsSync(d));
+}
+
+async function findPidForWorkspace(workspacePath: string): Promise<number | null> {
+    const wsId = toWorkspaceId(workspacePath);
+    try {
+        if (process.platform === 'win32') {
+            const cmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${workspacePath}*' -or $_.CommandLine -like '*${wsId}*' } | Select-Object -ExpandProperty ProcessId"`;
+            const { stdout } = await execAsync(cmd);
+            const pid = parseInt(stdout.trim().split(/\s+/)[0], 10);
+            return isNaN(pid) ? null : pid;
+        } else {
+            const { stdout } = await execAsync('ps -axo pid=,command=');
+            const lines = stdout.split('\n');
+            const target = lines.find(l => l.includes(workspacePath) || l.includes(wsId));
+            if (!target) { return null; }
+            const pid = parseInt(target.trim().split(/\s+/)[0], 10);
+            return isNaN(pid) ? null : pid;
+        }
+    } catch {
+        return null;
+    }
+}
+
+async function findFromDaemonFiles(workspacePath?: string): Promise<ProcessInfo | null> {
+    const daemonDirs = getDaemonDirs();
+    if (daemonDirs.length === 0) {
+        return null;
+    }
+
+    const hubs: DaemonHub[] = [];
+    for (const dir of daemonDirs) {
+        try {
+            const files = fs.readdirSync(dir).filter(f => f.startsWith('hub_') && f.endsWith('.json'));
+            for (const file of files) {
+                try {
+                    const content = fs.readFileSync(path.join(dir, file), 'utf-8');
+                    const data = JSON.parse(content) as DaemonHub;
+                    if (data.pid && data.csrfToken && (data.httpPort || data.httpsPort)) {
+                        try {
+                            process.kill(data.pid, 0);
+                            hubs.push(data);
+                        } catch {
+                            // Dead process, ignore stale hub file
+                        }
+                    }
+                } catch {
+                    // Ignore malformed files
+                }
+            }
+        } catch {
+            // Ignore unreadable dirs
+        }
+    }
+
+    if (hubs.length === 0) {
+        return null;
+    }
+
+    let prioritizedHubs = hubs;
+    if (workspacePath && hubs.length > 1) {
+        try {
+            const matchedPid = await findPidForWorkspace(workspacePath);
+            if (matchedPid) {
+                const matched = hubs.find(h => h.pid === matchedPid);
+                if (matched) {
+                    prioritizedHubs = [matched, ...hubs.filter(h => h.pid !== matchedPid)];
+                }
+            }
+        } catch {
+            // Keep default ordering
+        }
+    }
+
+    for (const hub of prioritizedHubs) {
+        const candidatePorts: number[] = [];
+        if (hub.httpPort) { candidatePorts.push(hub.httpPort); }
+        if (hub.httpsPort && !candidatePorts.includes(hub.httpsPort)) { candidatePorts.push(hub.httpsPort); }
+
+        const workingPort = await findWorkingPort(candidatePorts, hub.csrfToken);
+        if (workingPort) {
+            return { port: workingPort, csrfToken: hub.csrfToken };
+        }
+    }
+
+    return null;
+}
 
 function getProcessName(): string {
     if (process.platform === 'win32') {
@@ -151,8 +278,8 @@ function parseUnix(stdout: string, workspacePath?: string): ParsedProcess | null
 
     // Prefer the line matching our workspace, fall back to first match
     const target = (workspacePath && lines.find(l => l.includes(workspacePath))) ||
-                   (wsId && lines.find(l => l.includes(wsId))) ||
-                   lines[0];
+        (wsId && lines.find(l => l.includes(wsId))) ||
+        lines[0];
     if (!target) { return null; }
 
     const parts = target.trim().split(/\s+/);
